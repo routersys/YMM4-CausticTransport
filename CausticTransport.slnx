@@ -14,5 +14,6 @@
   <Project Path="CausticTransport/CausticTransport.csproj">
     <Platform Solution="*|x64" Project="x64" />
   </Project>
+  <Project Path="CausticTransport.Tests/CausticTransport.Tests.csproj" />
   <Project Path="YukkuriMovieMaker.Generator/YukkuriMovieMaker.Generator/YukkuriMovieMaker.Generator.csproj" />
 </Solution>
