@@ -3,6 +3,6 @@
 		<IsPackagedProject>false</IsPackagedProject>
 	</PropertyGroup>
 	<ItemGroup Condition="'$(MSBuildProjectName)' == 'ComputeSharp.Core'">
-		<InternalsVisibleTo Include="TopologicalMaterialField.ComputeSharp, PublicKey=$(AssemblySignPublicKey)" />
+		<InternalsVisibleTo Include="CausticTransport.ComputeSharp, PublicKey=$(AssemblySignPublicKey)" />
 	</ItemGroup>
 </Project>
