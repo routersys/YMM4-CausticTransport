@@ -1,0 +1,39 @@
+Key,Parameter,ja-jp,en-us,zh-cn,zh-tw,ko-kr,es-es,ar-sa,id-id
+CausticTransport,,光輸送結像,Caustic Transport,光传输聚焦成像,光傳輸聚焦成像,광 수송 결상,Transporte de luz cáustico,نقل الضوء الكاوي,Transpor Cahaya Kaustik
+BasicGroup,,基本,Basic,基本,基本,기본,Básico,أساسي,Dasar
+LightGroup,,光源,Light Source,光源,光源,광원,Fuente de luz,مصدر الضوء,Sumber Cahaya
+OpticsGroup,,光学,Optics,光学,光學,광학,Óptica,البصريات,Optik
+Amount,,強さ,Amount,强度,強度,강도,Intensidad,الشدة,Intensitas
+AmountDescription,,元映像と生成された光の像の合成量です,Blend amount between the source and the generated light image,源视频与生成光像的混合量,原影像與生成光像的混合量,원본 영상과 생성된 빛 이미지의 합성량입니다,Cantidad de mezcla entre la imagen original y la imagen de luz generada,مقدار المزج بين الصورة الأصلية وصورة الضوء المولدة,Jumlah pencampuran antara video sumber dan citra cahaya yang dihasilkan
+Focus,,集光度,Convergence,聚光度,聚光度,집광도,Convergencia,درجة التجميع,Konvergensi
+FocusDescription,,0%で光源の形に広がり100%で元映像に結像します,Spreads into the light shape at 0% and converges into the image at 100%,0%时扩散为光源形状且100%时聚焦为原图像,0%時擴散為光源形狀且100%時聚焦為原圖像,0%에서 광원 형태로 퍼지고 100%에서 원본 영상으로 결상합니다,Se extiende con la forma de la luz al 0% y converge en la imagen al 100%,ينتشر بشكل مصدر الضوء عند 0% ويتجمع في الصورة عند 100%,Menyebar ke bentuk cahaya pada 0% dan mengerucut ke citra pada 100%
+Quality,,品質,Quality,品质,品質,품질,Calidad,الجودة,Kualitas
+QualityDescription,,輸送格子の解像度と反復回数を選びます,Selects the transport grid resolution and iteration counts,选择输运网格分辨率与迭代次数,選擇輸運網格解析度與迭代次數,수송 격자 해상도와 반복 횟수를 선택합니다,Selecciona la resolución de la cuadrícula de transporte y el número de iteraciones,يحدد دقة شبكة النقل وعدد التكرارات,Memilih resolusi kisi transpor dan jumlah iterasi
+LightShape,,光源形状,Light Shape,光源形状,光源形狀,광원 형태,Forma de la luz,شكل مصدر الضوء,Bentuk Sumber Cahaya
+LightShapeDescription,,集光度0%で光が広がる分布の形です,The distribution shape the light spreads into at 0% convergence,聚光度为0%时光扩散分布的形状,聚光度為0%時光擴散分佈的形狀,집광도 0%에서 빛이 퍼지는 분포의 형태입니다,La forma de distribución en la que se extiende la luz al 0% de convergencia,شكل التوزيع الذي ينتشر فيه الضوء عند درجة تجميع 0%,Bentuk distribusi tempat cahaya menyebar pada konvergensi 0%
+ApertureSize,,光源サイズ,Light Size,光源大小,光源大小,광원 크기,Tamaño de la luz,حجم مصدر الضوء,Ukuran Sumber Cahaya
+ApertureSizeDescription,,円とスリットの大きさです,Size of the circle and slit shapes,圆形与狭缝的大小,圓形與狹縫的大小,원형과 슬릿의 크기입니다,Tamaño de las formas de círculo y rendija,حجم شكلي الدائرة والشق,Ukuran bentuk lingkaran dan celah
+Dispersion,,分散,Dispersion,色散,色散,분산,Dispersión,التشتت اللوني,Dispersi
+DispersionDescription,,波長ごとに集まる速さを変えて色を虹に分けます,Separates colors like a rainbow by varying convergence per wavelength,按波长改变聚焦速度使颜色如彩虹般分离,按波長改變聚焦速度使顏色如彩虹般分離,파장마다 모이는 속도를 바꾸어 색을 무지개처럼 나눕니다,Separa los colores como un arcoíris variando la convergencia por longitud de onda,يفصل الألوان كقوس قزح بتغيير التجميع حسب الطول الموجي,Memisahkan warna seperti pelangi dengan mengubah konvergensi per panjang gelombang
+Roughness,,面粗さ,Roughness,表面粗糙度,表面粗糙度,표면 거칠기,Rugosidad,خشونة السطح,Kekasaran
+RoughnessDescription,,磨りガラスのように光の筋を柔らかく散らします,Softly scatters the light filaments like frosted glass,像磨砂玻璃一样柔和地散射光线,像磨砂玻璃一樣柔和地散射光線,젖빛 유리처럼 빛줄기를 부드럽게 흩뜨립니다,Dispersa suavemente los filamentos de luz como el vidrio esmerilado,يشتت خيوط الضوء بنعومة مثل الزجاج المصنفر,Menyebarkan berkas cahaya secara lembut seperti kaca buram
+Seed,,シード,Seed,种子,種子,시드,Semilla,البذرة,Seed
+SeedDescription,,散乱の分布を決める固定値です,A fixed value that determines the scatter distribution,决定散射分布的固定值,決定散射分佈的固定值,산란 분포를 결정하는 고정값입니다,Valor fijo que determina la distribución de la dispersión,قيمة ثابتة تحدد توزيع التشتت,Nilai tetap yang menentukan distribusi hamburan
+ShapePlane,,面,Plane,平面,平面,평면,Plano,مستو,Bidang
+ShapePlaneDescription,,画面全体へ一様に広がります,Spreads uniformly across the whole frame,均匀扩散到整个画面,均勻擴散到整個畫面,화면 전체로 균일하게 퍼집니다,Se extiende uniformemente por todo el cuadro,ينتشر بانتظام عبر الإطار كله,Menyebar merata ke seluruh bingkai
+ShapeCircle,,円,Circle,圆形,圓形,원형,Círculo,دائرة,Lingkaran
+ShapeCircleDescription,,中央の円形の絞りへ集まります,Gathers into a circular aperture at the center,聚集到中央的圆形光圈,聚集到中央的圓形光圈,중앙의 원형 조리개로 모입니다,Se concentra en una apertura circular en el centro,يتجمع في فتحة دائرية في المنتصف,Berkumpul ke bukaan melingkar di tengah
+ShapeHorizontalSlit,,横スリット,Horizontal Slit,水平狭缝,水平狹縫,가로 슬릿,Rendija horizontal,شق أفقي,Celah Horizontal
+ShapeHorizontalSlitDescription,,水平の帯状の光へ集まります,Gathers into a horizontal band of light,聚集为水平光带,聚集為水平光帶,수평 띠 모양의 빛으로 모입니다,Se concentra en una banda horizontal de luz,يتجمع في شريط أفقي من الضوء,Berkumpul menjadi pita cahaya horizontal
+ShapeVerticalSlit,,縦スリット,Vertical Slit,垂直狭缝,垂直狹縫,세로 슬릿,Rendija vertical,شق رأسي,Celah Vertikal
+ShapeVerticalSlitDescription,,垂直の帯状の光へ集まります,Gathers into a vertical band of light,聚集为垂直光带,聚集為垂直光帶,수직 띠 모양의 빛으로 모입니다,Se concentra en una banda vertical de luz,يتجمع في شريط رأسي من الضوء,Berkumpul menjadi pita cahaya vertikal
+QualityBalanced,,標準,Balanced,标准,標準,표준,Estándar,قياسي,Standar
+QualityBalancedDescription,,格子解像度と反復回数を抑えた設定です,Uses reduced grid resolution and iteration counts,降低网格分辨率与迭代次数的设置,降低網格解析度與迭代次數的設定,격자 해상도와 반복 횟수를 줄인 설정입니다,Configuración con resolución de cuadrícula e iteraciones reducidas,إعداد بدقة شبكة وعدد تكرارات مخفضين,Pengaturan dengan resolusi kisi dan iterasi yang dikurangi
+QualityHigh,,高品質,High,高品质,高品質,고품질,Alta,عالية,Tinggi
+QualityHighDescription,,品質と処理量の基準設定です,The reference balance of quality and cost,品质与处理量的基准设置,品質與處理量的基準設定,품질과 처리량의 기준 설정입니다,Configuración de referencia entre calidad y coste,الإعداد المرجعي للتوازن بين الجودة والتكلفة,Pengaturan acuan antara kualitas dan beban proses
+QualityUltra,,最高品質,Ultra,最高品质,最高品質,최고 품질,Máxima,قصوى,Ultra
+QualityUltraDescription,,最大の格子解像度と反復回数を使用します,Uses the largest grid resolution and iteration counts,使用最大的网格分辨率与迭代次数,使用最大的網格解析度與迭代次數,최대 격자 해상도와 반복 횟수를 사용합니다,Usa la mayor resolución de cuadrícula y el mayor número de iteraciones,يستخدم أكبر دقة شبكة وأكبر عدد من التكرارات,Menggunakan resolusi kisi dan jumlah iterasi terbesar
+TagCaustic,,集光,Caustic,聚光,聚光,집광,Cáustica,تجميع الضوء,Kaustik
+TagLight,,光,Light,光,光,빛,Luz,ضوء,Cahaya
+TagTransition,,遷移,Transition,过渡,過渡,전환,Transición,انتقال,Transisi
+UpdateAvailableMessage,,新しいバージョン {0} が公開されています。,A new version {0} is available.,新版本 {0} 已发布。,新版本 {0} 已發布。,새 버전 {0}이(가) 공개되었습니다.,La nueva versión {0} ya está disponible.,تم إصدار نسخة جديدة {0}.,Versi baru {0} telah dirilis.
