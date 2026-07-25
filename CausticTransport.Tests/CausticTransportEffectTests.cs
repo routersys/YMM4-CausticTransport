@@ -95,6 +95,52 @@ public sealed class CausticTransportEffectTests
         Assert.True((double)CausticTransportSettings.GetColorFixedScale(3840 * 2160) * 3840 * 2160 <= uint.MaxValue);
     }
 
+    [Theory]
+    [InlineData(1, 8)]
+    [InlineData(8, 8)]
+    [InlineData(9, 16)]
+    [InlineData(1080, 1080)]
+    [InlineData(2730, 2736)]
+    public void SplatDispatchSizeCoversFrameInWholeThreadGroups(int size, int expected)
+    {
+        var dispatch = CausticTransportSettings.GetSplatDispatchSize(size);
+
+        Assert.Equal(expected, dispatch);
+        Assert.Equal(0, dispatch % CausticTransportSettings.SplatGroupSize);
+        Assert.InRange(dispatch - size, 0, CausticTransportSettings.SplatGroupSize - 1);
+    }
+
+    [Theory]
+    [InlineData(5, 3)]
+    [InlineData(9, 1)]
+    [InlineData(1, 9)]
+    [InlineData(17, 15)]
+    public void FramesNotAlignedToThreadGroupsAreProcessed(int width, int height)
+    {
+        using var pipeline = CausticTransportPipeline.TryCreate();
+        if (pipeline is null)
+        {
+            Assert.Skip("Direct3D 12 is unavailable.");
+            return;
+        }
+
+        var source = CreateSourcePixels(width, height);
+        var destination = new int[source.Length];
+        var parameters = new CausticTransportPipeline.Parameters(1, CausticTransportQuality.Balanced, 1f, 0.5f, 0.3f, 0.2f, 5);
+
+        pipeline.Process(source, destination, width, height, in parameters);
+
+        for (var index = 0; index < source.Length; index++)
+        {
+            for (var shift = 0; shift < 32; shift += 8)
+            {
+                var expected = (source[index] >> shift) & 255;
+                var actual = (destination[index] >> shift) & 255;
+                Assert.InRange(actual, Math.Max(expected - 1, 0), Math.Min(expected + 1, 255));
+            }
+        }
+    }
+
     [Fact]
     public void MaximumPixelCountKeepsColorAccumulationWithinUnsignedRange()
     {
