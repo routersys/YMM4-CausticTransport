@@ -175,8 +175,35 @@ public sealed class CausticTransportEffectTests
         Assert.Equal(first, second);
     }
 
-    [Fact]
-    public void FullHdFrameIsProcessedWithoutDispatchGroupOverflow()
+    [Theory]
+    [InlineData(1920, 1080)]
+    [InlineData(3840, 2160)]
+    [InlineData(4096, 2160)]
+    [InlineData(4096, 2730)]
+    public void LargeFramesAreProcessedWithoutDispatchGroupOverflow(int width, int height)
+    {
+        Assert.True(CausticTransportSettings.IsSupportedSize(width, height));
+
+        using var pipeline = CausticTransportPipeline.TryCreate();
+        if (pipeline is null)
+        {
+            Assert.Skip("Direct3D 12 is unavailable.");
+            return;
+        }
+
+        var source = CreateSourcePixels(width, height);
+        var destination = new int[source.Length];
+        var parameters = new CausticTransportPipeline.Parameters(0, CausticTransportQuality.Balanced, 0.5f, 0.5f, 0.3f, 0.2f, 5);
+
+        pipeline.Process(source, destination, width, height, in parameters);
+
+        Assert.Contains(destination, pixel => pixel != 0);
+    }
+
+    [Theory]
+    [InlineData(3840, 2160)]
+    [InlineData(4096, 2730)]
+    public void LargeFrameConservesMassDuringTransport(int width, int height)
     {
         using var pipeline = CausticTransportPipeline.TryCreate();
         if (pipeline is null)
@@ -185,15 +212,25 @@ public sealed class CausticTransportEffectTests
             return;
         }
 
-        const int width = 1920;
-        const int height = 1080;
-        var source = CreateSourcePixels(width, height);
+        var source = new int[width * height];
+        for (var index = 0; index < source.Length; index++)
+        {
+            var value = 16 + (index * 7) % 48;
+            source[index] = 64 << 24 | value << 16 | value << 8 | value;
+        }
         var destination = new int[source.Length];
-        var parameters = new CausticTransportPipeline.Parameters(0, CausticTransportQuality.Balanced, 0.5f, 0.5f, 0.3f, 0.2f, 5);
+        var parameters = new CausticTransportPipeline.Parameters(0, CausticTransportQuality.Balanced, 0.5f, 0.5f, 0f, 0f, 0);
 
         pipeline.Process(source, destination, width, height, in parameters);
 
-        Assert.Contains(destination, pixel => pixel != 0);
+        double sourceSum = 0;
+        double destinationSum = 0;
+        foreach (var pixel in source)
+            sourceSum += (pixel >> 24) & 255;
+        foreach (var pixel in destination)
+            destinationSum += (pixel >> 24) & 255;
+
+        Assert.InRange(destinationSum, sourceSum * 0.98, sourceSum * 1.02);
     }
 
     [Fact]
