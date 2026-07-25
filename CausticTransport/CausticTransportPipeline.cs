@@ -182,8 +182,7 @@ internal sealed class CausticTransportPipeline : IDisposable
             context.Barrier(displacement);
         }
 
-        var accumulatorLength = pixelCount * 4;
-        context.For(accumulatorLength, new ClearIntShader(accumulator, accumulatorLength));
+        context.Clear(accumulator);
         context.Barrier(accumulator);
         var movement = 1f - parameters.Focus;
         var jitterAmplitude = parameters.Roughness * CausticTransportSettings.JitterCellAmplitude;
