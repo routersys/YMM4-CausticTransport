@@ -13,6 +13,9 @@ internal static class CausticTransportSettings
     public const double ColorFixedScaleMargin = 1.5;
     public const int MaximumCanvasSize = 8192;
     public const int MaximumPixelCount = (int)(uint.MaxValue / (ColorFixedScaleMargin * MinimumColorFixedScale));
+    public const int SplatGroupSize = 8;
+    public const int SplatTileSize = 10;
+    public const int SplatTileLength = SplatTileSize * SplatTileSize * 4;
 
     public static QualitySettings GetQuality(CausticTransportQuality quality)
         => quality switch
@@ -45,6 +48,9 @@ internal static class CausticTransportSettings
 
     public static (int Width, int Height) GetCoarserLevelSize(int width, int height)
         => (Math.Max((width + 1) / 2, MinimumGridSize), Math.Max((height + 1) / 2, MinimumGridSize));
+
+    public static int GetSplatDispatchSize(int size)
+        => (size + SplatGroupSize - 1) / SplatGroupSize * SplatGroupSize;
 
     public static bool IsSupportedSize(double width, double height)
         => width >= 1d && height >= 1d &&

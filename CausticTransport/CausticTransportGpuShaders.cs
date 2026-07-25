@@ -467,7 +467,7 @@ internal readonly partial struct UpdateDisplacementShader(
     }
 }
 
-[ThreadGroupSize(DefaultThreadGroupSizes.XY)]
+[ThreadGroupSize(CausticTransportSettings.SplatGroupSize, CausticTransportSettings.SplatGroupSize, 1)]
 [GeneratedComputeShaderDescriptor]
 internal readonly partial struct SplatShader(
     ReadWriteTexture2D<Bgra32, Float4> source,
@@ -496,33 +496,109 @@ internal readonly partial struct SplatShader(
     private readonly int seed = seed;
     private readonly float colorScale = colorScale;
 
+    [GroupShared(CausticTransportSettings.SplatTileLength)]
+    private static readonly uint[] tile = null!;
+
+    [GroupShared(4)]
+    private static readonly int[] extent = null!;
+
     public void Execute()
     {
+        var threadIndex = GroupIds.Index;
+        var threadCount = GroupSize.Count;
         var x = ThreadIds.X;
         var y = ThreadIds.Y;
-        if (x >= width || y >= height)
-            return;
+        var pixel = source[new Int2(Hlsl.Min(x, width - 1), Hlsl.Min(y, height - 1))];
+        var active = x < width && y < height &&
+            (pixel.X > 0f || pixel.Y > 0f || pixel.Z > 0f || pixel.W > 0f);
 
-        var pixel = source[ThreadIds.XY];
-        if (pixel.X <= 0f && pixel.Y <= 0f && pixel.Z <= 0f && pixel.W <= 0f)
-            return;
+        var transport = new Float2(0f, 0f);
+        if (active)
+            transport = SampleDisplacement(x, y);
 
-        var transport = SampleDisplacement(x, y);
         var baseX = x + 0.5f;
         var baseY = y + 0.5f;
-        if (dispersion <= 0f)
+        var spread = dispersion * 0.35f;
+        var phaseCount = dispersion <= 0f ? 1 : 3;
+        for (var phase = 0; phase < phaseCount; phase++)
         {
-            SplatAll(baseX + transport.X * movement, baseY + transport.Y * movement, pixel);
-        }
-        else
-        {
-            var spread = dispersion * 0.35f;
-            var movementRed = Hlsl.Saturate(movement * (1f + spread));
-            var movementBlue = Hlsl.Saturate(movement * (1f - spread));
-            var alphaShare = pixel.W * (1f / 3f);
-            SplatChannel(baseX + transport.X * movementRed, baseY + transport.Y * movementRed, 0, pixel.X, alphaShare);
-            SplatChannel(baseX + transport.X * movement, baseY + transport.Y * movement, 1, pixel.Y, alphaShare);
-            SplatChannel(baseX + transport.X * movementBlue, baseY + transport.Y * movementBlue, 2, pixel.Z, alphaShare);
+            var phaseMovement = movement;
+            var contribution = pixel;
+            if (dispersion > 0f)
+            {
+                var alphaShare = pixel.W * (1f / 3f);
+                if (phase == 0)
+                {
+                    phaseMovement = Hlsl.Saturate(movement * (1f + spread));
+                    contribution = new Float4(pixel.X, 0f, 0f, alphaShare);
+                }
+                else if (phase == 1)
+                {
+                    contribution = new Float4(0f, pixel.Y, 0f, alphaShare);
+                }
+                else
+                {
+                    phaseMovement = Hlsl.Saturate(movement * (1f - spread));
+                    contribution = new Float4(0f, 0f, pixel.Z, alphaShare);
+                }
+            }
+
+            var px = Hlsl.Clamp(baseX + transport.X * phaseMovement, 0.5f, width - 0.5f) - 0.5f;
+            var py = Hlsl.Clamp(baseY + transport.Y * phaseMovement, 0.5f, height - 0.5f) - 0.5f;
+            var ix0 = (int)px;
+            var iy0 = (int)py;
+            var wx = px - ix0;
+            var wy = py - iy0;
+            var ix1 = Hlsl.Min(ix0 + 1, width - 1);
+            var iy1 = Hlsl.Min(iy0 + 1, height - 1);
+
+            if (threadIndex == 0)
+            {
+                extent[0] = width;
+                extent[1] = height;
+                extent[2] = -1;
+                extent[3] = -1;
+            }
+            Hlsl.GroupMemoryBarrierWithGroupSync();
+            if (active)
+            {
+                Hlsl.InterlockedMin(ref extent[0], ix0);
+                Hlsl.InterlockedMin(ref extent[1], iy0);
+                Hlsl.InterlockedMax(ref extent[2], ix1);
+                Hlsl.InterlockedMax(ref extent[3], iy1);
+            }
+            Hlsl.GroupMemoryBarrierWithGroupSync();
+
+            var originX = extent[0];
+            var originY = extent[1];
+            var spanX = extent[2] - originX + 1;
+            var spanY = extent[3] - originY + 1;
+            var useTile = spanX >= 1 &&
+                spanX <= CausticTransportSettings.SplatTileSize &&
+                spanY <= CausticTransportSettings.SplatTileSize;
+            if (useTile)
+                ClearTile(spanX, spanY, threadIndex, threadCount);
+            Hlsl.GroupMemoryBarrierWithGroupSync();
+            if (active)
+            {
+                if (useTile)
+                {
+                    AddTileTap(TileOffset(ix0 - originX, iy0 - originY), contribution, (1f - wx) * (1f - wy));
+                    AddTileTap(TileOffset(ix1 - originX, iy0 - originY), contribution, wx * (1f - wy));
+                    AddTileTap(TileOffset(ix0 - originX, iy1 - originY), contribution, (1f - wx) * wy);
+                    AddTileTap(TileOffset(ix1 - originX, iy1 - originY), contribution, wx * wy);
+                }
+                else
+                {
+                    AddGlobalTap((iy0 * width + ix0) * 4, contribution, (1f - wx) * (1f - wy));
+                    AddGlobalTap((iy0 * width + ix1) * 4, contribution, wx * (1f - wy));
+                    AddGlobalTap((iy1 * width + ix0) * 4, contribution, (1f - wx) * wy);
+                    AddGlobalTap((iy1 * width + ix1) * 4, contribution, wx * wy);
+                }
+            }
+            Hlsl.GroupMemoryBarrierWithGroupSync();
+            if (useTile)
+                FlushTile(originX, originY, spanX, spanY, threadIndex, threadCount);
         }
     }
 
@@ -556,54 +632,68 @@ internal readonly partial struct SplatShader(
         return value;
     }
 
-    private void SplatAll(float x, float y, Float4 value)
-    {
-        var px = Hlsl.Clamp(x, 0.5f, width - 0.5f) - 0.5f;
-        var py = Hlsl.Clamp(y, 0.5f, height - 0.5f) - 0.5f;
-        var ix0 = (int)px;
-        var iy0 = (int)py;
-        var wx = px - ix0;
-        var wy = py - iy0;
-        var ix1 = Hlsl.Min(ix0 + 1, width - 1);
-        var iy1 = Hlsl.Min(iy0 + 1, height - 1);
+    private int TileOffset(int tileX, int tileY)
+        => (tileY * CausticTransportSettings.SplatTileSize + tileX) * 4;
 
-        SplatAllTap((iy0 * width + ix0) * 4, value, (1f - wx) * (1f - wy));
-        SplatAllTap((iy0 * width + ix1) * 4, value, wx * (1f - wy));
-        SplatAllTap((iy1 * width + ix0) * 4, value, (1f - wx) * wy);
-        SplatAllTap((iy1 * width + ix1) * 4, value, wx * wy);
+    private void ClearTile(int spanX, int spanY, int threadIndex, int threadCount)
+    {
+        var cellCount = spanX * spanY * 4;
+        for (var index = threadIndex; index < cellCount; index += threadCount)
+        {
+            var cell = index / 4;
+            var channel = index - cell * 4;
+            var tileY = cell / spanX;
+            var tileX = cell - tileY * spanX;
+            tile[TileOffset(tileX, tileY) + channel] = 0;
+        }
     }
 
-    private void SplatAllTap(int index4, Float4 value, float weight)
+    private void FlushTile(int originX, int originY, int spanX, int spanY, int threadIndex, int threadCount)
+    {
+        var cellCount = spanX * spanY * 4;
+        for (var index = threadIndex; index < cellCount; index += threadCount)
+        {
+            var cell = index / 4;
+            var channel = index - cell * 4;
+            var tileY = cell / spanX;
+            var tileX = cell - tileY * spanX;
+            var amount = tile[TileOffset(tileX, tileY) + channel];
+            if (amount == 0)
+                continue;
+            Hlsl.InterlockedAdd(ref accumulator[((originY + tileY) * width + originX + tileX) * 4 + channel], amount);
+        }
+    }
+
+    private void AddTileTap(int index4, Float4 value, float weight)
     {
         var scaled = weight * colorScale;
-        Hlsl.InterlockedAdd(ref accumulator[index4], (uint)Hlsl.Round(value.X * scaled));
-        Hlsl.InterlockedAdd(ref accumulator[index4 + 1], (uint)Hlsl.Round(value.Y * scaled));
-        Hlsl.InterlockedAdd(ref accumulator[index4 + 2], (uint)Hlsl.Round(value.Z * scaled));
-        Hlsl.InterlockedAdd(ref accumulator[index4 + 3], (uint)Hlsl.Round(value.W * scaled));
+        AddTile(index4, value.X * scaled);
+        AddTile(index4 + 1, value.Y * scaled);
+        AddTile(index4 + 2, value.Z * scaled);
+        AddTile(index4 + 3, value.W * scaled);
     }
 
-    private void SplatChannel(float x, float y, int channel, float value, float alphaShare)
+    private void AddTile(int index, float value)
     {
-        var px = Hlsl.Clamp(x, 0.5f, width - 0.5f) - 0.5f;
-        var py = Hlsl.Clamp(y, 0.5f, height - 0.5f) - 0.5f;
-        var ix0 = (int)px;
-        var iy0 = (int)py;
-        var wx = px - ix0;
-        var wy = py - iy0;
-        var ix1 = Hlsl.Min(ix0 + 1, width - 1);
-        var iy1 = Hlsl.Min(iy0 + 1, height - 1);
-
-        SplatChannelTap((iy0 * width + ix0) * 4, channel, value, alphaShare, (1f - wx) * (1f - wy));
-        SplatChannelTap((iy0 * width + ix1) * 4, channel, value, alphaShare, wx * (1f - wy));
-        SplatChannelTap((iy1 * width + ix0) * 4, channel, value, alphaShare, (1f - wx) * wy);
-        SplatChannelTap((iy1 * width + ix1) * 4, channel, value, alphaShare, wx * wy);
+        var amount = (uint)Hlsl.Round(value);
+        if (amount != 0)
+            Hlsl.InterlockedAdd(ref tile[index], amount);
     }
 
-    private void SplatChannelTap(int index4, int channel, float value, float alphaShare, float weight)
+    private void AddGlobalTap(int index4, Float4 value, float weight)
     {
         var scaled = weight * colorScale;
-        Hlsl.InterlockedAdd(ref accumulator[index4 + channel], (uint)Hlsl.Round(value * scaled));
-        Hlsl.InterlockedAdd(ref accumulator[index4 + 3], (uint)Hlsl.Round(alphaShare * scaled));
+        AddGlobal(index4, value.X * scaled);
+        AddGlobal(index4 + 1, value.Y * scaled);
+        AddGlobal(index4 + 2, value.Z * scaled);
+        AddGlobal(index4 + 3, value.W * scaled);
+    }
+
+    private void AddGlobal(int index, float value)
+    {
+        var amount = (uint)Hlsl.Round(value);
+        if (amount != 0)
+            Hlsl.InterlockedAdd(ref accumulator[index], amount);
     }
 
     private float Hash01(uint value)

@@ -185,19 +185,22 @@ internal sealed class CausticTransportPipeline : IDisposable
         context.Barrier(accumulator);
         var movement = 1f - parameters.Focus;
         var jitterAmplitude = parameters.Roughness * CausticTransportSettings.JitterCellAmplitude;
-        context.For(width, height, new SplatShader(
-            source,
-            displacement,
-            accumulator,
-            width,
-            height,
-            gridWidth,
-            gridHeight,
-            movement,
-            parameters.Dispersion,
-            jitterAmplitude,
-            parameters.Seed,
-            colorScale));
+        context.For(
+            CausticTransportSettings.GetSplatDispatchSize(width),
+            CausticTransportSettings.GetSplatDispatchSize(height),
+            new SplatShader(
+                source,
+                displacement,
+                accumulator,
+                width,
+                height,
+                gridWidth,
+                gridHeight,
+                movement,
+                parameters.Dispersion,
+                jitterAmplitude,
+                parameters.Seed,
+                colorScale));
         context.Barrier(accumulator);
         context.For(width, height, new ResolveShader(accumulator, output, width, height, 1f / colorScale));
     }
