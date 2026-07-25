@@ -95,6 +95,31 @@ public sealed class CausticTransportEffectTests
         Assert.True((double)CausticTransportSettings.GetColorFixedScale(3840 * 2160) * 3840 * 2160 <= uint.MaxValue);
     }
 
+    [Fact]
+    public void MaximumPixelCountKeepsColorAccumulationWithinUnsignedRange()
+    {
+        var scale = CausticTransportSettings.GetColorFixedScale(CausticTransportSettings.MaximumPixelCount);
+
+        Assert.Equal(CausticTransportSettings.MinimumColorFixedScale, scale);
+        Assert.True((double)CausticTransportSettings.MaximumPixelCount * scale <= uint.MaxValue);
+        Assert.True(CausticTransportSettings.MaximumPixelCount >= 4096 * 2160);
+    }
+
+    [Theory]
+    [InlineData(1920d, 1080d, true)]
+    [InlineData(3840d, 2160d, true)]
+    [InlineData(4096d, 2160d, true)]
+    [InlineData(8192d, 1365d, true)]
+    [InlineData(8193d, 1365d, false)]
+    [InlineData(4096d, 2731d, false)]
+    [InlineData(0d, 1080d, false)]
+    [InlineData(double.NaN, 1080d, false)]
+    [InlineData(double.PositiveInfinity, 1080d, false)]
+    public void SupportedSizeCoversUpTo4KAndRejectsLarger(double width, double height, bool expected)
+    {
+        Assert.Equal(expected, CausticTransportSettings.IsSupportedSize(width, height));
+    }
+
     [Theory]
     [InlineData(0f, 0f, 0)]
     [InlineData(0.5f, 0.3f, 7)]

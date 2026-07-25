@@ -68,11 +68,8 @@ internal sealed class CausticTransportEffectProcessor : VideoEffectProcessorBase
         var bounds = _devices.DeviceContext.GetImageLocalBounds(input);
         var widthValue = Math.Ceiling((double)bounds.Right - bounds.Left);
         var heightValue = Math.Ceiling((double)bounds.Bottom - bounds.Top);
-        if (!double.IsFinite(widthValue) || !double.IsFinite(heightValue) ||
-            !float.IsFinite(bounds.Left) || !float.IsFinite(bounds.Top) ||
-            widthValue <= 0d || heightValue <= 0d ||
-            widthValue > int.MaxValue || heightValue > int.MaxValue ||
-            widthValue * heightValue > int.MaxValue)
+        if (!float.IsFinite(bounds.Left) || !float.IsFinite(bounds.Top) ||
+            !CausticTransportSettings.IsSupportedSize(widthValue, heightValue))
         {
             _effect.Amount = 0f;
             _isFirst = true;
