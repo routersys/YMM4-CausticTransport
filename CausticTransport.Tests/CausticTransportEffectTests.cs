@@ -151,6 +151,27 @@ public sealed class CausticTransportEffectTests
     }
 
     [Fact]
+    public void FullHdFrameIsProcessedWithoutDispatchGroupOverflow()
+    {
+        using var pipeline = CausticTransportPipeline.TryCreate();
+        if (pipeline is null)
+        {
+            Assert.Skip("Direct3D 12 is unavailable.");
+            return;
+        }
+
+        const int width = 1920;
+        const int height = 1080;
+        var source = CreateSourcePixels(width, height);
+        var destination = new int[source.Length];
+        var parameters = new CausticTransportPipeline.Parameters(0, CausticTransportQuality.Balanced, 0.5f, 0.5f, 0.3f, 0.2f, 5);
+
+        pipeline.Process(source, destination, width, height, in parameters);
+
+        Assert.Contains(destination, pixel => pixel != 0);
+    }
+
+    [Fact]
     public void OutputAlphaStaysPremultipliedAndBounded()
     {
         using var pipeline = CausticTransportPipeline.TryCreate();
