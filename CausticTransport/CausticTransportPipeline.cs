@@ -18,7 +18,7 @@ internal sealed class CausticTransportPipeline : IDisposable
     private (int Width, int Height)[] _levelSizes = [];
     private int _gridWidth;
     private int _gridHeight;
-    private ReadWriteBuffer<int>? _accumulator;
+    private ReadWriteBuffer<uint>? _accumulator;
     private int _accumulatorCapacity;
     private ReadWriteTexture2D<Bgra32, Float4>? _packedSource;
     private ReadWriteTexture2D<Bgra32, Float4>? _packedOutput;
@@ -257,7 +257,7 @@ internal sealed class CausticTransportPipeline : IDisposable
             SynchronizeDevice();
             _accumulator.Dispose();
         }
-        _accumulator = _device.AllocateReadWriteBuffer<int>(pixelCount * 4);
+        _accumulator = _device.AllocateReadWriteBuffer<uint>(pixelCount * 4);
         _accumulatorCapacity = pixelCount;
     }
 

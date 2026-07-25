@@ -472,7 +472,7 @@ internal readonly partial struct UpdateDisplacementShader(
 internal readonly partial struct SplatShader(
     ReadWriteTexture2D<Bgra32, Float4> source,
     ReadWriteBuffer<Float2> displacement,
-    ReadWriteBuffer<int> accumulator,
+    ReadWriteBuffer<uint> accumulator,
     int width,
     int height,
     int gridWidth,
@@ -485,7 +485,7 @@ internal readonly partial struct SplatShader(
 {
     private readonly ReadWriteTexture2D<Bgra32, Float4> source = source;
     private readonly ReadWriteBuffer<Float2> displacement = displacement;
-    private readonly ReadWriteBuffer<int> accumulator = accumulator;
+    private readonly ReadWriteBuffer<uint> accumulator = accumulator;
     private readonly int width = width;
     private readonly int height = height;
     private readonly int gridWidth = gridWidth;
@@ -576,10 +576,10 @@ internal readonly partial struct SplatShader(
     private void SplatAllTap(int index4, Float4 value, float weight)
     {
         var scaled = weight * colorScale;
-        Hlsl.InterlockedAdd(ref accumulator[index4], (int)Hlsl.Round(value.X * scaled));
-        Hlsl.InterlockedAdd(ref accumulator[index4 + 1], (int)Hlsl.Round(value.Y * scaled));
-        Hlsl.InterlockedAdd(ref accumulator[index4 + 2], (int)Hlsl.Round(value.Z * scaled));
-        Hlsl.InterlockedAdd(ref accumulator[index4 + 3], (int)Hlsl.Round(value.W * scaled));
+        Hlsl.InterlockedAdd(ref accumulator[index4], (uint)Hlsl.Round(value.X * scaled));
+        Hlsl.InterlockedAdd(ref accumulator[index4 + 1], (uint)Hlsl.Round(value.Y * scaled));
+        Hlsl.InterlockedAdd(ref accumulator[index4 + 2], (uint)Hlsl.Round(value.Z * scaled));
+        Hlsl.InterlockedAdd(ref accumulator[index4 + 3], (uint)Hlsl.Round(value.W * scaled));
     }
 
     private void SplatChannel(float x, float y, int channel, float value, float alphaShare)
@@ -602,8 +602,8 @@ internal readonly partial struct SplatShader(
     private void SplatChannelTap(int index4, int channel, float value, float alphaShare, float weight)
     {
         var scaled = weight * colorScale;
-        Hlsl.InterlockedAdd(ref accumulator[index4 + channel], (int)Hlsl.Round(value * scaled));
-        Hlsl.InterlockedAdd(ref accumulator[index4 + 3], (int)Hlsl.Round(alphaShare * scaled));
+        Hlsl.InterlockedAdd(ref accumulator[index4 + channel], (uint)Hlsl.Round(value * scaled));
+        Hlsl.InterlockedAdd(ref accumulator[index4 + 3], (uint)Hlsl.Round(alphaShare * scaled));
     }
 
     private float Hash01(uint value)
@@ -620,13 +620,13 @@ internal readonly partial struct SplatShader(
 [ThreadGroupSize(DefaultThreadGroupSizes.XY)]
 [GeneratedComputeShaderDescriptor]
 internal readonly partial struct ResolveShader(
-    ReadWriteBuffer<int> accumulator,
+    ReadWriteBuffer<uint> accumulator,
     ReadWriteTexture2D<Bgra32, Float4> output,
     int width,
     int height,
     float inverseColorScale) : IComputeShader
 {
-    private readonly ReadWriteBuffer<int> accumulator = accumulator;
+    private readonly ReadWriteBuffer<uint> accumulator = accumulator;
     private readonly ReadWriteTexture2D<Bgra32, Float4> output = output;
     private readonly int width = width;
     private readonly int height = height;
@@ -640,10 +640,10 @@ internal readonly partial struct ResolveShader(
             return;
 
         var index4 = (y * width + x) * 4;
-        var red = Hlsl.Max(accumulator[index4], 0) * inverseColorScale;
-        var green = Hlsl.Max(accumulator[index4 + 1], 0) * inverseColorScale;
-        var blue = Hlsl.Max(accumulator[index4 + 2], 0) * inverseColorScale;
-        var alpha = Hlsl.Max(accumulator[index4 + 3], 0) * inverseColorScale;
+        var red = accumulator[index4] * inverseColorScale;
+        var green = accumulator[index4 + 1] * inverseColorScale;
+        var blue = accumulator[index4 + 2] * inverseColorScale;
+        var alpha = accumulator[index4 + 3] * inverseColorScale;
 
         var outAlpha = Hlsl.Min(alpha, 1f);
         var scale = alpha > 1f ? outAlpha / alpha : 1f;

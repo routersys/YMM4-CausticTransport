@@ -91,8 +91,8 @@ public sealed class CausticTransportEffectTests
     public void ColorFixedScaleStaysWithinSafeBounds()
     {
         Assert.Equal(65536, CausticTransportSettings.GetColorFixedScale(64));
-        Assert.Equal(256, CausticTransportSettings.GetColorFixedScale(3840 * 2160));
-        Assert.True((long)CausticTransportSettings.GetColorFixedScale(1920 * 1080) * 1920 * 1080 < int.MaxValue * 1.01);
+        Assert.Equal(345, CausticTransportSettings.GetColorFixedScale(3840 * 2160));
+        Assert.True((double)CausticTransportSettings.GetColorFixedScale(3840 * 2160) * 3840 * 2160 <= uint.MaxValue);
     }
 
     [Theory]

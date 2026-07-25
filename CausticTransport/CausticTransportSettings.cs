@@ -8,6 +8,9 @@ internal static class CausticTransportSettings
     public const float JitterCellAmplitude = 0.5f;
     public const int CoarsestLevelSize = 16;
     public const int MinimumGridSize = 4;
+    public const int MinimumColorFixedScale = 256;
+    public const int MaximumColorFixedScale = 65536;
+    public const double ColorFixedScaleMargin = 1.5;
 
     public static QualitySettings GetQuality(CausticTransportQuality quality)
         => quality switch
@@ -42,7 +45,10 @@ internal static class CausticTransportSettings
         => (Math.Max((width + 1) / 2, MinimumGridSize), Math.Max((height + 1) / 2, MinimumGridSize));
 
     public static int GetColorFixedScale(int pixelCount)
-        => (int)Math.Clamp(int.MaxValue / (1.5 * Math.Max(pixelCount, 1)), 256d, 65536d);
+        => (int)Math.Clamp(
+            uint.MaxValue / (ColorFixedScaleMargin * Math.Max(pixelCount, 1)),
+            MinimumColorFixedScale,
+            MaximumColorFixedScale);
 
     internal readonly record struct QualitySettings(int GridResolution, int TransportIterations, int JacobiIterations);
 }
