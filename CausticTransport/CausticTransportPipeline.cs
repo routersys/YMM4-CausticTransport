@@ -37,7 +37,7 @@ internal sealed class CausticTransportPipeline : IDisposable
     private void SynchronizeDevice()
     {
         using ComputeContext context = _device.CreateComputeContext();
-        context.For(1, new ClearIntShader(_syncBuffer, 1));
+        context.Clear(_syncBuffer);
     }
 
     public static CausticTransportPipeline? TryCreate()
@@ -135,7 +135,7 @@ internal sealed class CausticTransportPipeline : IDisposable
         context.For(1, new NormalizeScaleShader(rowSums, scales, gridHeight, gridLength));
         context.Barrier(scales);
         context.For(gridWidth, gridHeight, new InitializeDisplacementShader(displacement, gridWidth, gridHeight, parameters.Shape, parameters.Aperture));
-        context.For(gridLength, new ClearIntShader(warpedFixed, gridLength));
+        context.Clear(warpedFixed);
         context.Barrier(displacement);
         context.Barrier(warpedFixed);
 
@@ -156,8 +156,7 @@ internal sealed class CausticTransportPipeline : IDisposable
                 context.Barrier(_residuals[level]);
             }
 
-            var (coarsestWidth, coarsestHeight) = _levelSizes[coarsest];
-            context.For(coarsestWidth * coarsestHeight, new ClearFloatShader(_phiA[coarsest], coarsestWidth * coarsestHeight));
+            context.Clear(_phiA[coarsest]);
             context.Barrier(_phiA[coarsest]);
 
             for (var level = coarsest; level >= 0; level--)

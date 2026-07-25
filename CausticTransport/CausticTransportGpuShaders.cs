@@ -2,42 +2,6 @@ using ComputeSharp;
 
 namespace CausticTransport;
 
-[ThreadGroupSize(DefaultThreadGroupSizes.X)]
-[GeneratedComputeShaderDescriptor]
-internal readonly partial struct ClearIntShader(
-    ReadWriteBuffer<int> values,
-    int length) : IComputeShader
-{
-    private readonly ReadWriteBuffer<int> values = values;
-    private readonly int length = length;
-
-    public void Execute()
-    {
-        var index = ThreadIds.X;
-        if (index >= length)
-            return;
-        values[index] = 0;
-    }
-}
-
-[ThreadGroupSize(DefaultThreadGroupSizes.X)]
-[GeneratedComputeShaderDescriptor]
-internal readonly partial struct ClearFloatShader(
-    ReadWriteBuffer<float> values,
-    int length) : IComputeShader
-{
-    private readonly ReadWriteBuffer<float> values = values;
-    private readonly int length = length;
-
-    public void Execute()
-    {
-        var index = ThreadIds.X;
-        if (index >= length)
-            return;
-        values[index] = 0f;
-    }
-}
-
 [ThreadGroupSize(DefaultThreadGroupSizes.XY)]
 [GeneratedComputeShaderDescriptor]
 internal readonly partial struct InitializeDisplacementShader(
