@@ -42,25 +42,21 @@ foreach (var quality in new[] { CausticTransportQuality.Balanced, CausticTranspo
 
 {
     var device = ComputeSharp.GraphicsDevice.GetDefault();
-    using var sourceTexture = ComputeSharp.Interop.InteropServices.AllocateSharedReadWriteTexture2D<ComputeSharp.Bgra32, ComputeSharp.Float4>(device, width, height);
-    using var outputTexture = ComputeSharp.Interop.InteropServices.AllocateSharedReadWriteTexture2D<ComputeSharp.Bgra32, ComputeSharp.Float4>(device, width, height);
-    var pixels = new ComputeSharp.Bgra32[source.Length];
-    for (var index = 0; index < source.Length; index++)
-        pixels[index].PackedValue = unchecked((uint)source[index]);
-    sourceTexture.CopyFrom(pixels);
-    foreach (var quality in new[] { CausticTransportQuality.Balanced, CausticTransportQuality.High, CausticTransportQuality.Ultra })
+    foreach (var (benchWidth, benchHeight) in new[] { (1024, 1000), (1920, 1080), (3840, 2160) })
     {
-        var parameters = new CausticTransportPipeline.Parameters(1, quality, 0.5f, 0.5f, 0.3f, 0.2f, 7);
-        pipeline.Process(sourceTexture, outputTexture, width, height, in parameters);
-        pipeline.WaitForCompletion();
-        var stopwatch = Stopwatch.StartNew();
-        const int frames = 20;
-        for (var frame = 0; frame < frames; frame++)
-            pipeline.Process(sourceTexture, outputTexture, width, height, in parameters);
-        pipeline.WaitForCompletion();
-        stopwatch.Stop();
-        outputTexture.CopyTo(pixels);
-        Console.WriteLine($"shared {quality}: {stopwatch.Elapsed.TotalMilliseconds / frames:F2} ms/frame ({width}x{height})");
+        using var sourceTexture = ComputeSharp.Interop.InteropServices.AllocateSharedReadWriteTexture2D<ComputeSharp.Bgra32, ComputeSharp.Float4>(device, benchWidth, benchHeight);
+        using var outputTexture = ComputeSharp.Interop.InteropServices.AllocateSharedReadWriteTexture2D<ComputeSharp.Bgra32, ComputeSharp.Float4>(device, benchWidth, benchHeight);
+        var benchSource = CreateTestImage(benchWidth, benchHeight);
+        var pixels = new ComputeSharp.Bgra32[benchSource.Length];
+        for (var index = 0; index < benchSource.Length; index++)
+            pixels[index].PackedValue = unchecked((uint)benchSource[index]);
+        sourceTexture.CopyFrom(pixels);
+        foreach (var shape in new[] { 0, 1 })
+        {
+            var parameters = new CausticTransportPipeline.Parameters(shape, CausticTransportQuality.High, 0.5f, 0.5f, 0.3f, 0.2f, 7);
+            var median = MeasureMedian(pipeline, sourceTexture, outputTexture, benchWidth, benchHeight, in parameters);
+            Console.WriteLine($"shared shape={shape}: {median:F2} ms/frame ({benchWidth}x{benchHeight})");
+        }
     }
 }
 
@@ -79,6 +75,34 @@ foreach (var shape in new[] { 0, 1, 2, 3 })
 WriteBmp(Path.Combine(outputDirectory, "source.bmp"), source, width, height);
 Console.WriteLine($"images written to {outputDirectory}");
 return 0;
+
+static double MeasureMedian(
+    CausticTransportPipeline pipeline,
+    ReadWriteTexture2D<Bgra32, Float4> source,
+    ReadWriteTexture2D<Bgra32, Float4> destination,
+    int width,
+    int height,
+    in CausticTransportPipeline.Parameters parameters)
+{
+    for (var warmup = 0; warmup < 5; warmup++)
+        pipeline.Process(source, destination, width, height, in parameters);
+    pipeline.WaitForCompletion();
+
+    var samples = new double[12];
+    for (var sample = 0; sample < samples.Length; sample++)
+    {
+        const int frames = 20;
+        var stopwatch = Stopwatch.StartNew();
+        for (var frame = 0; frame < frames; frame++)
+            pipeline.Process(source, destination, width, height, in parameters);
+        pipeline.WaitForCompletion();
+        stopwatch.Stop();
+        samples[sample] = stopwatch.Elapsed.TotalMilliseconds / frames;
+    }
+
+    Array.Sort(samples);
+    return (samples[5] + samples[6]) * 0.5;
+}
 
 static int[] CreateTestImage(int width, int height)
 {
