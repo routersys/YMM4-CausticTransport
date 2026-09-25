@@ -1,10 +1,8 @@
 using YukkuriMovieMaker.Generator;
 
-namespace CausticTransport
-{
-    [AutoGenLocalizer]
-    partial class Texts
-    {
+namespace CausticTransport;
 
-    }
+[AutoGenLocalizer]
+partial class Texts
+{
 }
