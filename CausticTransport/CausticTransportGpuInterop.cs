@@ -1,276 +1,89 @@
-using System.Runtime.InteropServices;
 using ComputeWeave;
-using ComputeWeave.Interop;
-using Vortice;
 using Vortice.Direct2D1;
 using Vortice.Direct3D11;
-using Vortice.DXGI;
 using YukkuriMovieMaker.Commons;
-using PixelFormat = Vortice.DCommon.PixelFormat;
 
 namespace CausticTransport;
 
-internal sealed class CausticTransportGpuInterop : IDisposable
+internal sealed class CausticTransportInteropProvider : ComputeExternalDirect3D11Provider
 {
-    private static readonly Guid D3D12FenceGuid = new("0a753dcf-c4d8-4b91-adf6-be5a60d95a76");
-
-    private readonly GraphicsDevice _device;
-    private readonly ID3D11Device1 _d3dDevice;
-    private readonly ID3D11DeviceContext4 _d3dContext;
-    private readonly ID3D11Fence _fence;
     private readonly ID2D1DeviceContext6 _renderContext;
-    private nint _d3d12Fence;
-    private ReadWriteTexture2D<Bgra32, Float4>? _sourceTexture;
-    private ReadWriteTexture2D<Bgra32, Float4>? _outputTexture;
-    private ID3D11Texture2D? _sourceD3D11Texture;
-    private ID3D11Texture2D? _outputD3D11Texture;
-    private ID2D1Bitmap1? _sourceBitmap;
-    private ID2D1Bitmap1? _outputBitmap;
-    private int _width;
-    private int _height;
-    private ulong _fenceValue;
-    private bool _computeActive;
-    private bool _disposed;
 
-    private CausticTransportGpuInterop(
-        GraphicsDevice device,
-        ID3D11Device1 d3dDevice,
-        ID3D11DeviceContext4 d3dContext,
-        ID3D11Fence fence,
+    private CausticTransportInteropProvider(
+        ID3D11Device1 device,
+        ID3D11DeviceContext4 context,
         ID2D1DeviceContext6 renderContext,
-        nint d3d12Fence)
+        ComputeExternalQueueScheduler scheduler)
+        : base(device.NativePointer, context.NativePointer, renderContext.NativePointer, scheduler)
     {
-        _device = device;
-        _d3dDevice = d3dDevice;
-        _d3dContext = d3dContext;
-        _fence = fence;
         _renderContext = renderContext;
-        _d3d12Fence = d3d12Fence;
     }
 
-    public GraphicsDevice Device => _device;
+    public ID2D1DeviceContext6 RenderContext => _renderContext;
 
-    public ReadWriteTexture2D<Bgra32, Float4> SourceTexture => _sourceTexture!;
-
-    public ReadWriteTexture2D<Bgra32, Float4> OutputTexture => _outputTexture!;
-
-    public ID2D1Bitmap1 OutputBitmap => _outputBitmap!;
-
-    public bool MatchesSize(int width, int height)
-        => _sourceTexture is not null && _width == width && _height == height;
-
-    public static unsafe CausticTransportGpuInterop? TryCreate(IGraphicsDevicesAndContext devices)
+    public static CausticTransportInteropProvider? TryCreate(
+        IGraphicsDevicesAndContext devices,
+        ComputeExternalQueueScheduler scheduler,
+        out GraphicsDevice? graphicsDevice)
     {
-        ID3D11Device1? d3dDevice = null;
-        ID3D11DeviceContext4? d3dContext = null;
-        ID3D11Fence? fence = null;
+        ArgumentNullException.ThrowIfNull(scheduler);
+
+        graphicsDevice = null;
+
+        ID3D11Device1? device = null;
+        ID3D11DeviceContext4? context = null;
         ID2D1DeviceContext6? renderContext = null;
-        nint d3d12Fence = 0;
-        nint fenceHandle = 0;
         try
         {
-            var device = GetMatchingDevice(devices);
-            d3dDevice = devices.D3D.Device.QueryInterface<ID3D11Device1>();
-            d3dContext = devices.D3D.DeviceContext.QueryInterface<ID3D11DeviceContext4>();
-            using var d3dDevice5 = devices.D3D.Device.QueryInterface<ID3D11Device5>();
-            var fenceGuid = D3D12FenceGuid;
-            InteropServices.CreateSharedFence(device, &fenceGuid, (void**)&d3d12Fence, &fenceHandle);
-            fence = d3dDevice5.OpenSharedFence(fenceHandle);
+            if (!GraphicsDevice.TryGetDevice(new ExternalAdapterIdentity(devices.DXGI.Adapter.Description.Luid), out graphicsDevice))
+                return null;
+
+            device = devices.D3D.Device.QueryInterface<ID3D11Device1>();
+            context = devices.D3D.DeviceContext.QueryInterface<ID3D11DeviceContext4>();
             renderContext = devices.D2D.Device.CreateDeviceContext(DeviceContextOptions.EnableMultithreadedOptimizations);
-            return new CausticTransportGpuInterop(device, d3dDevice, d3dContext, fence, renderContext, d3d12Fence);
+            var provider = new CausticTransportInteropProvider(device, context, renderContext, scheduler);
+            renderContext = null;
+            return provider;
         }
         catch
         {
-            renderContext?.Dispose();
-            fence?.Dispose();
-            d3dContext?.Dispose();
-            d3dDevice?.Dispose();
-            if (d3d12Fence != 0)
-                Marshal.Release(d3d12Fence);
+            graphicsDevice = null;
             return null;
         }
         finally
         {
-            if (fenceHandle != 0)
-                CloseHandle(fenceHandle);
+            renderContext?.Dispose();
+            context?.Dispose();
+            device?.Dispose();
         }
     }
 
-    public bool EnsureResources(int width, int height)
+    protected override void DisposeCore()
     {
-        if (MatchesSize(width, height))
-            return false;
-
-        if (_sourceTexture is not null)
-            WaitForIdle();
-        ReleaseResources();
-        CreateResources(width, height);
-        return true;
+        _renderContext.Dispose();
     }
+}
 
-    public void RenderInput(ID2D1Image source, RawRectF bounds)
-    {
-        _renderContext.BeginDraw();
-        _renderContext.Clear(null);
-        _renderContext.DrawImage(
-            source,
-            new System.Numerics.Vector2(-bounds.Left, -bounds.Top),
-            null,
-            InterpolationMode.NearestNeighbor,
-            CompositeMode.SourceCopy);
-        _renderContext.EndDraw();
-    }
+[ComputeInteropResourceSet]
+internal sealed partial class CausticTransportResourceSet
+{
+    [ComputeSharedTexture(
+        ComputeResourceResizePolicy.Exact,
+        ComputeResourceAccess.ReadWrite,
+        ExternalResourceAccess.Write,
+        ExternalTextureUsage.RenderTarget,
+        ComputeAlphaMode.Premultiplied,
+        ComputeSharedTextureInitialOwner.External,
+        ComputeResourceRecovery.RecreateFromHost)]
+    private readonly SharedTextureSlot<Bgra32, Float4, ExternalDirect3D11TextureView> _source;
 
-    public unsafe void BeginCompute()
-    {
-        if (_computeActive)
-            throw new InvalidOperationException();
-        var value = ++_fenceValue;
-        _d3dContext.Signal(_fence, value);
-        _d3dContext.Flush();
-        InteropServices.WaitForSharedFence(_device, (void*)_d3d12Fence, value);
-        _computeActive = true;
-    }
-
-    public unsafe void EndCompute()
-    {
-        if (!_computeActive)
-            throw new InvalidOperationException();
-        try
-        {
-            var value = ++_fenceValue;
-            InteropServices.SignalSharedFence(_device, (void*)_d3d12Fence, value);
-            _d3dContext.Wait(_fence, value);
-        }
-        finally
-        {
-            _computeActive = false;
-        }
-    }
-
-    public void WaitForIdle()
-    {
-        if (_computeActive)
-            throw new InvalidOperationException();
-        var value = ++_fenceValue;
-        _d3dContext.Signal(_fence, value);
-        _d3dContext.Flush();
-        _fence.SetEventOnCompletion(value, 0);
-    }
-
-    private static GraphicsDevice GetMatchingDevice(IGraphicsDevicesAndContext devices)
-    {
-        var adapterLuid = devices.DXGI.Adapter.Description.Luid.ToString();
-        using var enumerator = GraphicsDevice.QueryDevices(
-            device => string.Equals(device.Luid.ToString(), adapterLuid, StringComparison.Ordinal)).GetEnumerator();
-        if (!enumerator.MoveNext())
-            throw new NotSupportedException();
-        return enumerator.Current;
-    }
-
-    private void CreateResources(int width, int height)
-    {
-        ReadWriteTexture2D<Bgra32, Float4>? sourceTexture = null;
-        ReadWriteTexture2D<Bgra32, Float4>? outputTexture = null;
-        ID3D11Texture2D? sourceD3D11Texture = null;
-        ID3D11Texture2D? outputD3D11Texture = null;
-        ID2D1Bitmap1? sourceBitmap = null;
-        ID2D1Bitmap1? outputBitmap = null;
-        nint sourceHandle = 0;
-        nint outputHandle = 0;
-        try
-        {
-            sourceTexture = InteropServices.AllocateSharedReadWriteTexture2D<Bgra32, Float4>(_device, width, height);
-            outputTexture = InteropServices.AllocateSharedReadWriteTexture2D<Bgra32, Float4>(_device, width, height);
-            sourceHandle = InteropServices.CreateSharedHandle(sourceTexture);
-            outputHandle = InteropServices.CreateSharedHandle(outputTexture);
-            sourceD3D11Texture = _d3dDevice.OpenSharedResource1<ID3D11Texture2D>(sourceHandle);
-            outputD3D11Texture = _d3dDevice.OpenSharedResource1<ID3D11Texture2D>(outputHandle);
-            using var sourceSurface = sourceD3D11Texture.QueryInterface<IDXGISurface>();
-            using var outputSurface = outputD3D11Texture.QueryInterface<IDXGISurface>();
-            var pixelFormat = new PixelFormat(Format.B8G8R8A8_UNorm, Vortice.DCommon.AlphaMode.Premultiplied);
-            sourceBitmap = _renderContext.CreateBitmapFromDxgiSurface(
-                sourceSurface,
-                new BitmapProperties1(pixelFormat, 96f, 96f, BitmapOptions.Target));
-            outputBitmap = _renderContext.CreateBitmapFromDxgiSurface(
-                outputSurface,
-                new BitmapProperties1(pixelFormat, 96f, 96f, BitmapOptions.None));
-            _renderContext.Target = sourceBitmap;
-
-            _sourceTexture = sourceTexture;
-            _outputTexture = outputTexture;
-            _sourceD3D11Texture = sourceD3D11Texture;
-            _outputD3D11Texture = outputD3D11Texture;
-            _sourceBitmap = sourceBitmap;
-            _outputBitmap = outputBitmap;
-            _width = width;
-            _height = height;
-            sourceTexture = null;
-            outputTexture = null;
-            sourceD3D11Texture = null;
-            outputD3D11Texture = null;
-            sourceBitmap = null;
-            outputBitmap = null;
-        }
-        finally
-        {
-            if (sourceHandle != 0)
-                CloseHandle(sourceHandle);
-            if (outputHandle != 0)
-                CloseHandle(outputHandle);
-            outputBitmap?.Dispose();
-            sourceBitmap?.Dispose();
-            outputD3D11Texture?.Dispose();
-            sourceD3D11Texture?.Dispose();
-            outputTexture?.Dispose();
-            sourceTexture?.Dispose();
-        }
-    }
-
-    private void ReleaseResources()
-    {
-        _renderContext.Target = null;
-        _outputBitmap?.Dispose();
-        _sourceBitmap?.Dispose();
-        _outputD3D11Texture?.Dispose();
-        _sourceD3D11Texture?.Dispose();
-        _outputTexture?.Dispose();
-        _sourceTexture?.Dispose();
-        _outputBitmap = null;
-        _sourceBitmap = null;
-        _outputD3D11Texture = null;
-        _sourceD3D11Texture = null;
-        _outputTexture = null;
-        _sourceTexture = null;
-        _width = 0;
-        _height = 0;
-    }
-
-    public void Dispose()
-    {
-        if (_disposed)
-            return;
-        try
-        {
-            WaitForIdle();
-        }
-        finally
-        {
-            _disposed = true;
-            ReleaseResources();
-            _renderContext.Dispose();
-            _fence.Dispose();
-            _d3dContext.Dispose();
-            _d3dDevice.Dispose();
-            if (_d3d12Fence != 0)
-            {
-                Marshal.Release(_d3d12Fence);
-                _d3d12Fence = 0;
-            }
-        }
-    }
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool CloseHandle(nint handle);
+    [ComputeSharedTexture(
+        ComputeResourceResizePolicy.GrowOnly,
+        ComputeResourceAccess.ReadWrite,
+        ExternalResourceAccess.Read,
+        ExternalTextureUsage.Sampled,
+        ComputeAlphaMode.Premultiplied,
+        ComputeSharedTextureInitialOwner.Compute,
+        ComputeResourceRecovery.Recompute)]
+    private readonly SharedTextureSlot<Bgra32, Float4, ExternalDirect3D11TextureView> _output;
 }

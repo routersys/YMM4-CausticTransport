@@ -1,4 +1,6 @@
+using System.ComponentModel;
 using System.Numerics;
+using ComputeWeave;
 using Vortice.Direct2D1;
 using Vortice.Direct2D1.Effects;
 using YukkuriMovieMaker.Commons;
@@ -11,15 +13,23 @@ internal sealed class CausticTransportEffectProcessor : VideoEffectProcessorBase
 {
     private readonly IGraphicsDevicesAndContext _devices;
     private readonly CausticTransportEffect _item;
-    private CausticTransportGpuInterop? _interop;
+    private ComputeExternalQueueScheduler? _scheduler;
+    private CausticTransportInteropProvider? _interopProvider;
+    private ComputeInteropDomain? _interopDomain;
+    private CausticTransportResourceSet? _resourceSet;
+    private ExternalTextureLease<ExternalDirect3D11TextureView>? _outputLease;
     private CausticTransportPipeline? _pipeline;
     private CausticTransportCustomEffect? _effect;
+    private Crop? _outputCrop;
+    private ID2D1Image? _outputCropOutput;
     private AffineTransform2D? _outputTransform;
     private ID2D1Image? _outputTransformOutput;
     private bool _isFirst = true;
     private bool _hasOutput;
     private bool _hasOutputOffset;
+    private bool _hasCropRect;
     private Vector2 _outputOffset;
+    private Vector4 _cropRect;
     private Parameters _parameters;
 
     public CausticTransportEffectProcessor(IGraphicsDevicesAndContext devices, CausticTransportEffect item)
@@ -31,7 +41,7 @@ internal sealed class CausticTransportEffectProcessor : VideoEffectProcessorBase
 
     public override DrawDescription Update(EffectDescription effectDescription)
     {
-        if (IsPassThroughEffect || _effect is null || _outputTransform is null || _outputTransformOutput is null || _interop is null || _pipeline is null || input is null)
+        if (IsPassThroughEffect || _effect is null || _outputCrop is null || _outputTransform is null || _outputTransformOutput is null || _resourceSet is null || _interopProvider is null || _pipeline is null || input is null)
             return effectDescription.DrawDescription;
 
         var frame = effectDescription.ItemPosition.Frame;
@@ -78,17 +88,14 @@ internal sealed class CausticTransportEffectProcessor : VideoEffectProcessorBase
         var width = (int)widthValue;
         var height = (int)heightValue;
 
-        if (!_interop.MatchesSize(width, height))
-            _outputTransform.SetInput(0, null, true);
-        var resourcesChanged = _interop.EnsureResources(width, height);
-        var outputOffset = new Vector2(bounds.Left, bounds.Top);
-        if (!_hasOutputOffset || _outputOffset != outputOffset)
+        if (!_resourceSet.TryEnsureSource(width, height, out _))
         {
-            _outputTransform.TransformMatrix = Matrix3x2.CreateTranslation(outputOffset);
-            _outputOffset = outputOffset;
-            _hasOutputOffset = true;
+            _effect.Amount = 0f;
+            _isFirst = true;
+            return effectDescription.DrawDescription;
         }
-        _interop.RenderInput(input, bounds);
+
+        RenderInput(new Vortice.RawRectF(bounds.Left, bounds.Top, bounds.Left + width, bounds.Top + height));
 
         var pipelineParameters = new CausticTransportPipeline.Parameters(
             (int)parameters.LightShape,
@@ -99,25 +106,44 @@ internal sealed class CausticTransportEffectProcessor : VideoEffectProcessorBase
             Math.Clamp(parameters.Roughness, 0f, 1f),
             Math.Max(parameters.Seed, 0));
 
-        _interop.BeginCompute();
-        try
+        if (!OutputCovers(width, height))
+            _outputCrop.SetInput(0, null, true);
+        if (!EnsureOutput(width, height, out var outputChanged))
         {
-            _pipeline.Process(
-                _interop.SourceTexture,
-                _interop.OutputTexture,
-                width,
-                height,
-                in pipelineParameters);
-        }
-        finally
-        {
-            _interop.EndCompute();
+            _effect.Amount = 0f;
+            _isFirst = true;
+            _hasOutput = false;
+            return effectDescription.DrawDescription;
         }
 
-        if (resourcesChanged || !_hasOutput)
+        _pipeline.Process(
+            _resourceSet.GetSourceComputeBinding(),
+            _resourceSet.GetOutputComputeBinding(),
+            width,
+            height,
+            in pipelineParameters);
+
+        _outputLease ??= _resourceSet.AcquireOutputExternalViewLease();
+
+        if (outputChanged || !_hasOutput)
         {
-            _outputTransform.SetInput(0, _interop.OutputBitmap, true);
+            using var outputBitmap = new ID2D1Bitmap1(_outputLease.DangerousGetView().AddRefBitmap());
+            _outputCrop.SetInput(0, outputBitmap, true);
             _effect.SetInput(1, _outputTransformOutput, true);
+        }
+        var cropRect = new Vector4(0f, 0f, width, height);
+        if (!_hasCropRect || _cropRect != cropRect)
+        {
+            _outputCrop.Rectangle = cropRect;
+            _cropRect = cropRect;
+            _hasCropRect = true;
+        }
+        var outputOffset = new Vector2(bounds.Left, bounds.Top);
+        if (!_hasOutputOffset || _outputOffset != outputOffset)
+        {
+            _outputTransform.TransformMatrix = Matrix3x2.CreateTranslation(outputOffset);
+            _outputOffset = outputOffset;
+            _hasOutputOffset = true;
         }
         _hasOutput = true;
         _parameters = parameters;
@@ -125,19 +151,98 @@ internal sealed class CausticTransportEffectProcessor : VideoEffectProcessorBase
         return effectDescription.DrawDescription;
     }
 
+    private bool OutputCovers(int width, int height)
+        => _outputLease is { IsDisposed: false } lease &&
+           lease.Width >= width &&
+           lease.Height >= height;
+
+    private bool EnsureOutput(int width, int height, out bool changed)
+    {
+        changed = false;
+        if (OutputCovers(width, height))
+            return true;
+
+        _outputLease?.Dispose();
+        _outputLease = null;
+        return _resourceSet!.TryEnsureOutput(width, height, out changed);
+    }
+
+    private void RenderInput(Vortice.RawRectF bounds)
+    {
+        var renderContext = _interopProvider!.RenderContext;
+        using var borrow = _resourceSet!.BeginSourceExternalOperation();
+        var previousTarget = renderContext.Target;
+        using var sourceBitmap = new ID2D1Bitmap1(borrow.DangerousGetView().AddRefBitmap());
+        renderContext.Target = sourceBitmap;
+        renderContext.BeginDraw();
+        renderContext.Clear(null);
+        renderContext.DrawImage(
+            input,
+            new Vector2(-bounds.Left, -bounds.Top),
+            null,
+            InterpolationMode.NearestNeighbor,
+            CompositeMode.SourceCopy);
+        renderContext.EndDraw();
+        renderContext.Target = previousTarget;
+    }
+
+    private void ReleaseInterop()
+    {
+        _outputLease?.Dispose();
+        _outputLease = null;
+        _pipeline?.Dispose();
+        _pipeline = null;
+        _resourceSet?.Dispose();
+        _resourceSet?.WaitForDisposal();
+        _resourceSet = null;
+        _interopDomain?.Dispose();
+        _interopDomain?.WaitForDisposal();
+        _interopDomain = null;
+        _interopProvider?.Dispose();
+        _interopProvider = null;
+        _scheduler?.Dispose();
+        _scheduler = null;
+    }
+
     protected override ID2D1Image? CreateEffect(IGraphicsDevicesAndContext devices)
     {
-        var interop = CausticTransportGpuInterop.TryCreate(devices);
-        if (interop is null)
-            return null;
-        var pipeline = CausticTransportPipeline.TryCreate(interop.Device);
-        if (pipeline is null)
+        var scheduler = ComputeExternalQueueScheduler.Create();
+        var interopProvider = CausticTransportInteropProvider.TryCreate(devices, scheduler, out var interopDevice);
+        if (interopProvider is null || interopDevice is null)
         {
-            interop.Dispose();
+            scheduler.Dispose();
+            return null;
+        }
+
+        _scheduler = scheduler;
+
+        try
+        {
+            _interopProvider = interopProvider;
+            _interopDomain = interopDevice.RegisterExternalDomain(interopProvider);
+            _resourceSet = CausticTransportResourceSet.Create(interopDevice, _interopDomain);
+            _pipeline = CausticTransportPipeline.TryCreate(interopDevice);
+        }
+        catch (Win32Exception)
+        {
+            ReleaseInterop();
+            return null;
+        }
+        catch
+        {
+            ReleaseInterop();
+            throw;
+        }
+
+        if (_pipeline is null)
+        {
+            ReleaseInterop();
             return null;
         }
 
         CausticTransportCustomEffect? effect = null;
+        Crop? outputCrop = null;
+        ID2D1Image? outputCropOutput = null;
         AffineTransform2D? outputTransform = null;
         ID2D1Image? outputTransformOutput = null;
         ID2D1Image? output = null;
@@ -147,22 +252,26 @@ internal sealed class CausticTransportEffectProcessor : VideoEffectProcessorBase
             if (!effect.IsEnabled)
             {
                 effect.Dispose();
-                pipeline.Dispose();
-                interop.Dispose();
+                ReleaseInterop();
                 return null;
             }
+            outputCrop = new Crop(devices.DeviceContext);
+            outputCropOutput = outputCrop.Output;
             outputTransform = new AffineTransform2D(devices.DeviceContext)
             {
                 BorderMode = BorderMode.Hard,
             };
+            outputTransform.SetInput(0, outputCropOutput, true);
             outputTransformOutput = outputTransform.Output;
             output = effect.Output;
-            _interop = interop;
-            _pipeline = pipeline;
             _effect = effect;
+            _outputCrop = outputCrop;
+            _outputCropOutput = outputCropOutput;
             _outputTransform = outputTransform;
             _outputTransformOutput = outputTransformOutput;
             disposer.Collect(effect);
+            disposer.Collect(outputCrop);
+            disposer.Collect(outputCropOutput);
             disposer.Collect(outputTransform);
             disposer.Collect(outputTransformOutput);
             disposer.Collect(output);
@@ -173,9 +282,10 @@ internal sealed class CausticTransportEffectProcessor : VideoEffectProcessorBase
             output?.Dispose();
             outputTransformOutput?.Dispose();
             outputTransform?.Dispose();
+            outputCropOutput?.Dispose();
+            outputCrop?.Dispose();
             effect?.Dispose();
-            pipeline.Dispose();
-            interop.Dispose();
+            ReleaseInterop();
             throw;
         }
     }
@@ -191,10 +301,11 @@ internal sealed class CausticTransportEffectProcessor : VideoEffectProcessorBase
     {
         _effect?.SetInput(0, null, true);
         _effect?.SetInput(1, null, true);
-        _outputTransform?.SetInput(0, null, true);
+        _outputCrop?.SetInput(0, null, true);
         _isFirst = true;
         _hasOutput = false;
         _hasOutputOffset = false;
+        _hasCropRect = false;
     }
 
     protected override void Dispose(bool disposing)
@@ -204,11 +315,7 @@ internal sealed class CausticTransportEffectProcessor : VideoEffectProcessorBase
             if (disposing)
             {
                 ClearEffectChain();
-                _interop?.WaitForIdle();
-                _pipeline?.Dispose();
-                _pipeline = null;
-                _interop?.Dispose();
-                _interop = null;
+                ReleaseInterop();
             }
         }
         finally

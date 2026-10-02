@@ -488,14 +488,17 @@ public sealed class CausticTransportEffectTests
     {
         using var devices = new GraphicsDevices();
         using var graphicsContext = devices.CreateContext();
-        using var interop = CausticTransportGpuInterop.TryCreate(graphicsContext);
-        if (interop is null)
+        using var scheduler = ComputeExternalQueueScheduler.Create();
+        using var provider = CausticTransportInteropProvider.TryCreate(graphicsContext, scheduler, out var interopDevice);
+        if (provider is null || interopDevice is null)
         {
             Assert.Skip("Direct3D 11 and Direct3D 12 sharing is unavailable.");
             return;
         }
 
-        using var pipeline = CausticTransportPipeline.TryCreate(interop.Device);
+        using var domain = interopDevice.RegisterExternalDomain(provider);
+        using var resourceSet = CausticTransportResourceSet.Create(interopDevice, domain);
+        using var pipeline = CausticTransportPipeline.TryCreate(interopDevice);
         Assert.NotNull(pipeline);
 
         const int width = 16;
@@ -519,24 +522,39 @@ public sealed class CausticTransportEffectTests
             handle.Free();
         }
 
-        Assert.True(interop.EnsureResources(width, height));
-        var bounds = new RawRectF(0f, 0f, width, height);
+        Assert.True(resourceSet.TryEnsureSource(width, height, out _));
+        Assert.True(resourceSet.TryEnsureOutput(width, height, out _));
         var parameters = new CausticTransportPipeline.Parameters(0, CausticTransportQuality.Balanced, 1f, 0.5f, 0f, 0f, 0);
+        var renderContext = provider.RenderContext;
         for (var iteration = 0; iteration < 2; iteration++)
         {
-            interop.RenderInput(inputBitmap, bounds);
-            interop.BeginCompute();
-            try
+            using (var borrow = resourceSet.BeginSourceExternalOperation())
             {
-                pipeline!.Process(interop.SourceTexture, interop.OutputTexture, width, height, in parameters);
+                var previousTarget = renderContext.Target;
+                using var sourceBitmap = new ID2D1Bitmap1(borrow.DangerousGetView().AddRefBitmap());
+                renderContext.Target = sourceBitmap;
+                renderContext.BeginDraw();
+                renderContext.Clear(null);
+                renderContext.DrawImage(
+                    inputBitmap,
+                    System.Numerics.Vector2.Zero,
+                    null,
+                    InterpolationMode.NearestNeighbor,
+                    CompositeMode.SourceCopy);
+                renderContext.EndDraw();
+                renderContext.Target = previousTarget;
             }
-            finally
-            {
-                interop.EndCompute();
-            }
-        }
-        interop.WaitForIdle();
 
+            pipeline!.Process(
+                resourceSet.GetSourceComputeBinding(),
+                resourceSet.GetOutputComputeBinding(),
+                width,
+                height,
+                in parameters);
+        }
+
+        using var outputLease = resourceSet.AcquireOutputExternalViewLease();
+        using var outputBitmap = new ID2D1Bitmap1(outputLease.DangerousGetView().AddRefBitmap());
         using var staging = graphicsContext.DeviceContext.CreateBitmap(
             new SizeI(width, height),
             new BitmapProperties1(
@@ -544,7 +562,7 @@ public sealed class CausticTransportEffectTests
                 96f,
                 96f,
                 BitmapOptions.CpuRead | BitmapOptions.CannotDraw));
-        staging.CopyFromBitmap(interop.OutputBitmap);
+        staging.CopyFromBitmap(outputBitmap);
         var mapped = staging.Map(MapOptions.Read);
         try
         {

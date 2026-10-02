@@ -99,6 +99,18 @@ internal sealed class CausticTransportPipeline : IDisposable
         SubmitFullPipeline(source, destination, width, height, in parameters).Wait();
     }
 
+    public void Process(
+        ComputeResourceBinding<ReadWriteTexture2D<Bgra32, Float4>> source,
+        ComputeResourceBinding<ReadWriteTexture2D<Bgra32, Float4>> destination,
+        int width,
+        int height,
+        in Parameters parameters)
+    {
+        EnsureResources(width, height, parameters.Quality);
+        var derived = Derive(width, height, in parameters);
+        _host.RecordSharedPipeline(source, destination, width, height, in derived, in parameters).Wait();
+    }
+
     private ComputeSubmission SubmitFullPipeline(
         ReadWriteTexture2D<Bgra32, Float4> source,
         ReadWriteTexture2D<Bgra32, Float4> output,

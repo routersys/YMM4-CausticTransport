@@ -126,6 +126,23 @@ internal sealed partial class CausticTransportPipelineHost
         RecordStages(in context, grid, source, output, width, height, in derived, in parameters);
     }
 
+    [ComputePipeline]
+    [ComputeInterop]
+    private void RecordSharedPipeline(
+        in ComputeContext context,
+        [ComputeOwnedResource(nameof(_grid))] CausticTransportGridResources grid,
+        [ComputeResource(ComputeResourceAccess.ReadWrite, Sharing = ComputeResourceSharing.External)] ReadWriteTexture2D<Bgra32, Float4> source,
+        [ComputeResource(ComputeResourceAccess.ReadWrite, Sharing = ComputeResourceSharing.External)] ReadWriteTexture2D<Bgra32, Float4> output,
+        int width,
+        int height,
+        in CausticTransportPipeline.DerivedValues derived,
+        in CausticTransportPipeline.Parameters parameters)
+    {
+        _ = _device;
+
+        RecordStages(in context, grid, source, output, width, height, in derived, in parameters);
+    }
+
     private static void RecordStages(
         in ComputeContext context,
         CausticTransportGridResources grid,
