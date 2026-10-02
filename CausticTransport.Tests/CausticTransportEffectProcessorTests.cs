@@ -463,6 +463,31 @@ public sealed class CausticTransportEffectProcessorTests
     }
 
     [Fact]
+    public void LightReturnsOnceAnUnsupportedFrameIsFollowedByASupportedOne()
+    {
+        using var devices = new GraphicsDevices();
+        using var context = devices.CreateContext();
+        RequireInterop(context);
+        using var source = new SourceImage(context, 8193, Size, Scene);
+        using var crop = new Crop(context.DeviceContext) { Rectangle = new Vector4(0f, 0f, Size, Size) };
+        crop.SetInput(0, source.Bitmap, true);
+        using var cropOutput = crop.Output;
+        using var processor = new CausticTransportEffect().CreateVideoEffect(context);
+        processor.SetInput(cropOutput);
+        var first = RenderFrame(context, processor, 0);
+
+        crop.Rectangle = new Vector4(0f, 0f, 8193f, Size);
+        var unsupported = RenderFrame(context, processor, 1);
+        crop.Rectangle = new Vector4(0f, 0f, Size, Size);
+        var again = RenderFrame(context, processor, 2);
+
+        Assert.Equal((0, 0, 8193, Size), (unsupported.Left, unsupported.Top, unsupported.Width, unsupported.Height));
+        Assert.True(unsupported.SamePixelsAs(Rendering.Capture(context, source.Bitmap)));
+        Assert.False(first.SamePixelsAs(Rendering.Capture(context, cropOutput)));
+        Assert.True(first.SamePixelsAs(again));
+    }
+
+    [Fact]
     public void AFailureWhileUpdatingIsNotSwallowed()
     {
         using var devices = new GraphicsDevices();
