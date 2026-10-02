@@ -162,6 +162,29 @@ public sealed class CausticTransportCustomEffectTests
     }
 
     [Fact]
+    public void AnAmountChangedAfterADrawReachesTheNextDraw()
+    {
+        using var devices = new GraphicsDevices();
+        using var context = devices.CreateContext();
+        using var source = SourceImage.Solid(context, Width, Height, Blue);
+        using var caustic = SourceImage.Solid(context, Width, Height, HalfLight);
+        using var effect = new CausticTransportCustomEffect(context);
+        effect.SetInput(0, source.Bitmap, true);
+        effect.SetInput(1, caustic.Bitmap, true);
+        using var output = effect.Output;
+        effect.Amount = 0.25f;
+        var first = Rendering.Capture(context, output);
+
+        effect.Amount = 0.75f;
+        var second = Rendering.Capture(context, output);
+
+        var expectedFirst = Mix(Blue.Premultiplied(), HalfLight.Premultiplied(), 0.25f);
+        var expectedSecond = Mix(Blue.Premultiplied(), HalfLight.Premultiplied(), 0.75f);
+        Assert.All(first.Coordinates(), point => Assert.True(WithinRounding(expectedFirst, first[point.X, point.Y])));
+        Assert.All(second.Coordinates(), point => Assert.True(WithinRounding(expectedSecond, second[point.X, point.Y])));
+    }
+
+    [Fact]
     public void ColorsBrighterThanTheirAlphaAreHeldToTheAlpha()
     {
         using var devices = new GraphicsDevices();
