@@ -59,9 +59,6 @@ internal static class CausticTransportSettings
         return (width, height);
     }
 
-    public static int GetSplatDispatchSize(int size)
-        => (size + SplatGroupSize - 1) / SplatGroupSize * SplatGroupSize;
-
     public static bool IsSupportedSize(double width, double height)
         => width >= 1d && height >= 1d &&
             width <= MaximumCanvasSize && height <= MaximumCanvasSize &&

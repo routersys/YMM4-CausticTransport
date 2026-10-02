@@ -103,11 +103,25 @@ public sealed class CausticTransportEffectTests
     [InlineData(2730, 2736)]
     public void SplatDispatchSizeCoversFrameInWholeThreadGroups(int size, int expected)
     {
-        var dispatch = CausticTransportSettings.GetSplatDispatchSize(size);
+        var horizontal = ThreadGroupAlignment.AlignX<SplatShader>(size);
+        var vertical = ThreadGroupAlignment.AlignY<SplatShader>(size);
 
-        Assert.Equal(expected, dispatch);
-        Assert.Equal(0, dispatch % CausticTransportSettings.SplatGroupSize);
-        Assert.InRange(dispatch - size, 0, CausticTransportSettings.SplatGroupSize - 1);
+        Assert.Equal(expected, horizontal);
+        Assert.Equal(expected, vertical);
+        Assert.Equal(0, horizontal % CausticTransportSettings.SplatGroupSize);
+        Assert.InRange(horizontal - size, 0, CausticTransportSettings.SplatGroupSize - 1);
+    }
+
+    [Fact]
+    public void SplatDispatchSizeRoundsEverySupportedSizeUpToWholeThreadGroups()
+    {
+        for (var size = 1; size <= CausticTransportSettings.MaximumCanvasSize; size++)
+        {
+            var expected = (size + CausticTransportSettings.SplatGroupSize - 1) / CausticTransportSettings.SplatGroupSize * CausticTransportSettings.SplatGroupSize;
+
+            Assert.Equal(expected, ThreadGroupAlignment.AlignX<SplatShader>(size));
+            Assert.Equal(expected, ThreadGroupAlignment.AlignY<SplatShader>(size));
+        }
     }
 
     [Theory]

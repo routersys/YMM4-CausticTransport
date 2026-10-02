@@ -218,8 +218,8 @@ internal sealed partial class CausticTransportPipelineHost
         var movement = 1f - parameters.Focus;
         var jitterAmplitude = parameters.Roughness * CausticTransportSettings.JitterCellAmplitude;
         context.For(
-            CausticTransportSettings.GetSplatDispatchSize(width),
-            CausticTransportSettings.GetSplatDispatchSize(height),
+            ThreadGroupAlignment.AlignX<SplatShader>(width),
+            ThreadGroupAlignment.AlignY<SplatShader>(height),
             new SplatShader(
                 source,
                 grid.Displacement,
