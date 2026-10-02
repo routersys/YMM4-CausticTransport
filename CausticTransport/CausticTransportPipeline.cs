@@ -1,5 +1,5 @@
 using System.Runtime.InteropServices;
-using ComputeSharp;
+using ComputeWeave;
 
 namespace CausticTransport;
 

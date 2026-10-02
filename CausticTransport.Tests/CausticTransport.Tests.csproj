@@ -63,6 +63,4 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
-  <Import Project="..\CausticTransport\ComputeSharp.Reference.props" />
-
 </Project>

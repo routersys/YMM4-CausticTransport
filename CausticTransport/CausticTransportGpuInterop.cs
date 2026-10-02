@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
-using ComputeSharp;
-using ComputeSharp.Interop;
+using ComputeWeave;
+using ComputeWeave.Interop;
 using Vortice;
 using Vortice.Direct2D1;
 using Vortice.Direct3D11;

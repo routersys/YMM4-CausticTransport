@@ -1,8 +1,0 @@
-<Project>
-	<PropertyGroup Condition="'$(MSBuildProjectName)' == 'ComputeSharp' or '$(MSBuildProjectName)' == 'ComputeSharp.Core'">
-		<IsPackagedProject>false</IsPackagedProject>
-	</PropertyGroup>
-	<ItemGroup Condition="'$(MSBuildProjectName)' == 'ComputeSharp.Core'">
-		<InternalsVisibleTo Include="CausticTransport.ComputeSharp, PublicKey=$(AssemblySignPublicKey)" />
-	</ItemGroup>
-</Project>
