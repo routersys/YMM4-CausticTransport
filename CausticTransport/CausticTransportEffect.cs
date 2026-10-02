@@ -15,6 +15,7 @@ public sealed class CausticTransportEffect : VideoEffectBase
 
     public CausticTransportEffect()
     {
+        CausticTransportTelemetry.EnsureStartedOnce();
         CausticTransportUpdateNotifier.EnsureCheckedOnce();
     }
 
