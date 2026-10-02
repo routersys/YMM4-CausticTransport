@@ -23,20 +23,8 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: fxc.exeの検索
-        id: fxc
-        shell: pwsh
-        run: |
-          $fxc = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter "fxc.exe" |
-            Where-Object { $_.FullName -like "*x64*" } |
-            Sort-Object FullName -Descending |
-            Select-Object -First 1
-          if (-not $fxc) {
-            Write-Error "fxc.exeが見つかりませんでした。"
-            exit 1
-          }
-          Write-Host "fxc.exeの場所: $($fxc.FullName)"
-          echo "FXC_PATH=$($fxc.FullName)" >> $env:GITHUB_OUTPUT
+      - name: MSBuildのセットアップ
+        uses: microsoft/setup-msbuild@v3
 
       - name: YMM4最新リリースの取得と解凍
         id: ymm4
@@ -71,6 +59,14 @@ jobs:
           $tag = "${{ github.ref_name }}"
           echo "TAG=$tag" >> $env:GITHUB_OUTPUT
 
+      - name: シェーダーのビルド
+        shell: pwsh
+        run: |
+          msbuild CausticTransport.Shader/CausticTransport.Shader.vcxproj `
+            /p:Configuration=Release `
+            /p:Platform=Win32 `
+            /nologo
+
       - name: resxファイルの生成
         shell: pwsh
         run: |
@@ -78,7 +74,6 @@ jobs:
           dotnet build "$proj" `
             -c Release `
             -p:YMM4DirPath="${{ steps.ymm4.outputs.YMM4_DIR }}" `
-            -p:FxcPath="${{ steps.fxc.outputs.FXC_PATH }}" `
             -p:Platform=x64 `
             -p:SkipPluginDeploy=true
 
@@ -89,7 +84,6 @@ jobs:
           dotnet build "$proj" `
             -c Release `
             -p:YMM4DirPath="${{ steps.ymm4.outputs.YMM4_DIR }}" `
-            -p:FxcPath="${{ steps.fxc.outputs.FXC_PATH }}" `
             -p:Platform=x64 `
             -p:SkipPluginDeploy=true
 
@@ -99,7 +93,6 @@ jobs:
           dotnet build CausticTransport.Tests/CausticTransport.Tests.csproj `
             -c Release `
             -p:YMM4DirPath="${{ steps.ymm4.outputs.YMM4_DIR }}" `
-            -p:FxcPath="${{ steps.fxc.outputs.FXC_PATH }}" `
             -p:Platform=x64 `
             -p:SkipPluginDeploy=true `
             -maxcpucount:1

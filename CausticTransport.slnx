@@ -8,8 +8,13 @@
   </Folder>
   <Project Path="CausticTransport/CausticTransport.csproj">
     <Platform Solution="*|x64" Project="x64" />
+    <BuildDependency Project="CausticTransport.Shader/CausticTransport.Shader.vcxproj" />
   </Project>
   <Project Path="CausticTransport.Tests/CausticTransport.Tests.csproj" />
   <Project Path="CausticTransport.Harness/CausticTransport.Harness.csproj" />
+  <Project Path="CausticTransport.Shader/CausticTransport.Shader.vcxproj">
+    <BuildType Solution="*|*" Project="Release" />
+    <Platform Solution="*|*" Project="Win32" />
+  </Project>
   <Project Path="YukkuriMovieMaker.Generator/YukkuriMovieMaker.Generator/YukkuriMovieMaker.Generator.csproj" />
 </Solution>
