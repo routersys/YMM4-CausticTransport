@@ -568,6 +568,21 @@ public sealed class CausticTransportPipelineTests
         Assert.Throws<OverflowException>(() => pipeline.Process(Array.Empty<int>(), Array.Empty<int>(), 30000, 20000, in parameters));
     }
 
+    [Fact]
+    public void ALargeFrameGatheredOntoASmallApertureDoesNotOverflowTheAccumulator()
+    {
+        using var pipeline = CreatePipeline();
+        var source = Uniform(3840, 2160, Opaque);
+
+        var rendering = Render(pipeline, source, 3840, 2160, Parameters(Circle, focus: 0f, aperture: 0.05f));
+
+        var center = rendering[1080 * 3840 + 1920];
+        Assert.Equal(255, Alpha(center));
+        Assert.InRange(Red(center), 191, 193);
+        Assert.InRange(Green(center), 191, 193);
+        Assert.InRange(Blue(center), 191, 193);
+    }
+
     [Theory]
     [InlineData(CausticTransportQuality.Balanced, CausticTransportQuality.Ultra)]
     [InlineData(CausticTransportQuality.Ultra, CausticTransportQuality.Balanced)]
