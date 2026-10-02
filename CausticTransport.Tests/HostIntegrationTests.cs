@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Windows;
+using Telemetry;
 
 namespace CausticTransport.Tests;
 
@@ -7,6 +8,18 @@ public sealed class HostIntegrationTests
 {
     static int UpdateChecksStarted()
         => (int)typeof(CausticTransportUpdateNotifier).GetField("_started", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
+
+    [Fact]
+    public void OutsideAWpfApplicationNoTelemetryIsStartedOrSent()
+    {
+        Assert.Null(Application.Current);
+
+        CausticTransportTelemetry.EnsureStartedOnce();
+        CausticTransportTelemetry.Report(new InvalidOperationException());
+
+        Assert.Null(ProcessState.Read("DrainClaimed"));
+        Assert.Null(ProcessState.Read("SentCount"));
+    }
 
     [Fact]
     public void OutsideAWpfApplicationNoUpdateCheckIsStarted()
@@ -27,5 +40,6 @@ public sealed class HostIntegrationTests
 
         Assert.Equal(Texts.CausticTransport, effect.Label);
         Assert.Equal(0, UpdateChecksStarted());
+        Assert.Null(ProcessState.Read("DrainClaimed"));
     }
 }
