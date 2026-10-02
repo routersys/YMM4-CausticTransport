@@ -94,6 +94,19 @@ public sealed class CausticTransportEffectTests
     }
 
     [Fact]
+    public void TheAnimatedParametersAreListedOnceAndReused()
+    {
+        var effect = new CausticTransportEffect();
+        var method = typeof(CausticTransportEffect).GetMethod("GetAnimatables", BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+        var first = (IEnumerable<IAnimatable>)method.Invoke(effect, null)!;
+        var second = (IEnumerable<IAnimatable>)method.Invoke(effect, null)!;
+
+        Assert.Same(first, second);
+        Assert.Equal(Animations(effect), first);
+    }
+
+    [Fact]
     public void TheLabelIsTheLocalizedEffectName()
     {
         var effect = new CausticTransportEffect();
