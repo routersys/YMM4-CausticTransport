@@ -93,6 +93,15 @@ public sealed class CausticTransportInteropTests
     }
 
     [Fact]
+    public void AProviderCannotBeMadeWithoutAScheduler()
+    {
+        using var devices = new GraphicsDevices();
+        using var context = devices.CreateContext();
+
+        Assert.Throws<ArgumentNullException>(() => CausticTransportInteropProvider.TryCreate(context, null!, out _));
+    }
+
+    [Fact]
     public void TheSourceIsReproducedAtFullFocus()
     {
         using var devices = new GraphicsDevices();
