@@ -239,6 +239,8 @@ public sealed class CausticTransportSettingsTests
     [InlineData(1d, 8192d, true)]
     [InlineData(8192d, 1365d, true)]
     [InlineData(8192d, 1366d, false)]
+    [InlineData(1446d, 7735d, true)]
+    [InlineData(1446d, 7736d, false)]
     [InlineData(8193d, 1d, false)]
     [InlineData(1d, 8193d, false)]
     [InlineData(4096d, 2731d, false)]
