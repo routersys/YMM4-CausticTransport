@@ -546,6 +546,28 @@ public sealed class CausticTransportPipelineTests
         Assert.Equal(expected.Select(pixel => unchecked((uint)pixel)), result.Select(pixel => pixel.PackedValue));
     }
 
+    [Fact]
+    public void AFrameWhosePixelCountOverflowsIsRejectedBeforeAnythingIsAllocated()
+    {
+        using var pipeline = CreatePipeline();
+        var device = GraphicsDevice.GetDefault();
+        using var source = InteropServices.AllocateSharedReadWriteTexture2D<Bgra32, Float4>(device, 1, 1);
+        using var destination = InteropServices.AllocateSharedReadWriteTexture2D<Bgra32, Float4>(device, 1, 1);
+        var parameters = Parameters(Circle);
+
+        Assert.Throws<OverflowException>(() => pipeline.Process(Array.Empty<int>(), Array.Empty<int>(), 65536, 65536, in parameters));
+        Assert.Throws<OverflowException>(() => pipeline.ProcessSharedAndWait(source, destination, 65536, 65536, in parameters));
+    }
+
+    [Fact]
+    public void AFrameWhoseAccumulatorCannotBeIndexedIsRejectedBeforeAnythingIsAllocated()
+    {
+        using var pipeline = CreatePipeline();
+        var parameters = Parameters(Circle);
+
+        Assert.Throws<OverflowException>(() => pipeline.Process(Array.Empty<int>(), Array.Empty<int>(), 30000, 20000, in parameters));
+    }
+
     [Theory]
     [InlineData(CausticTransportQuality.Balanced, CausticTransportQuality.Ultra)]
     [InlineData(CausticTransportQuality.Ultra, CausticTransportQuality.Balanced)]
