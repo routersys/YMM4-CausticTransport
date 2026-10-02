@@ -450,6 +450,19 @@ public sealed class CausticTransportEffectProcessorTests
     }
 
     [Fact]
+    public void AProcessorWithoutAnInputHandsTheDrawDescriptionBack()
+    {
+        using var devices = new GraphicsDevices();
+        using var context = devices.CreateContext();
+        using var processor = new CausticTransportEffect().CreateVideoEffect(context);
+        var description = EffectDescriptions.At(0, Length);
+
+        var draw = processor.Update(description);
+
+        Assert.Same(description.DrawDescription, draw);
+    }
+
+    [Fact]
     public void AFailureWhileUpdatingIsNotSwallowed()
     {
         using var devices = new GraphicsDevices();
