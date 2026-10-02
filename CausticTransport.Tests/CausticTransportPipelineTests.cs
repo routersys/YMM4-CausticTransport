@@ -526,6 +526,26 @@ public sealed class CausticTransportPipelineTests
         Assert.Equal(expected, reused);
     }
 
+    [Fact]
+    public void SharedTexturesAreProcessedByAPipelineThatHasNotDrawnYet()
+    {
+        using var packed = CreatePipeline();
+        using var pipeline = CreatePipeline();
+        var source = Mixed(24, 18);
+        var parameters = Parameters(Circle, focus: 0.35f, dispersion: 0.5f);
+        var expected = Render(packed, source, 24, 18, parameters);
+        var device = GraphicsDevice.GetDefault();
+        using var sourceTexture = InteropServices.AllocateSharedReadWriteTexture2D<Bgra32, Float4>(device, 24, 18);
+        using var outputTexture = InteropServices.AllocateSharedReadWriteTexture2D<Bgra32, Float4>(device, 24, 18);
+        Upload(sourceTexture, source);
+
+        pipeline.ProcessSharedAndWait(sourceTexture, outputTexture, 24, 18, in parameters);
+        var result = new Bgra32[source.Length];
+        outputTexture.CopyTo(result);
+
+        Assert.Equal(expected.Select(pixel => unchecked((uint)pixel)), result.Select(pixel => pixel.PackedValue));
+    }
+
     [Theory]
     [InlineData(CausticTransportQuality.Balanced, CausticTransportQuality.Ultra)]
     [InlineData(CausticTransportQuality.Ultra, CausticTransportQuality.Balanced)]
