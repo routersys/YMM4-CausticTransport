@@ -47,7 +47,7 @@ YukkuriMovieMaker4（YMM4）上で動作する、現在のフレームの明る�
 
 集光度は、この輸送をどれだけ進めるかを決めます。集光度が0%のときは光を光源形状へ広げ、100%のときは輸送を行わず元映像へ結像します。求めた輸送写像に沿って各画素の色を移動先へ加算し、固定小数点で集計してから出力します。分散は波長ごとに輸送量を変えて色を虹色に分け、面粗さは輸送量へ散乱を加えて光の筋を柔らかくします。
 
-計算はComputeSharpの計算シェーダーがDirect3D 12で実行します。YMM4のDirect3D 11側とComputeSharpのDirect3D 12側は、共有テクスチャと共有フェンスで接続します。通常のフレーム処理ではCPUへの画素読み戻しを行いません。入力と出力のアルファ値は維持します。
+計算はComputeWeaveの計算シェーダーがDirect3D 12で実行します。YMM4のDirect3D 11側とComputeWeaveのDirect3D 12側は、共有テクスチャと共有フェンスで接続します。通常のフレーム処理ではCPUへの画素読み戻しを行いません。入力と出力のアルファ値は維持します。
 
 このエフェクトはAviUtl向けのEXO出力には対応していません。
 
@@ -177,11 +177,11 @@ YukkuriMovieMaker4（YMM4）上で動作する、現在のフレームの明る�
 
 ## サードパーティライセンス
 
-本プラグインは以下のサードパーティソフトウェアを同梱・使用しています。ライセンスの全文は、リポジトリの [`.github/LICENSE/ComputeSharp.txt`](.github/LICENSE/ComputeSharp.txt) と、配布パッケージの `LICENSE` フォルダーに収録しています。
+本プラグインは以下のサードパーティソフトウェアを同梱・使用しています。ライセンスの全文は、リポジトリの [`.github/LICENSE/ComputeWeave.txt`](.github/LICENSE/ComputeWeave.txt) と、配布パッケージの `LICENSE` フォルダーに収録しています。
 
 | ソフトウェア | 用途 | ライセンス | 著作権表示 |
 |---|---|---|---|
-| [ComputeSharp](https://github.com/routersys/ComputeSharp) | Direct3D 12計算シェーダーとDirect3D 11・12共有処理 | MIT License | Copyright (c) 2024 Sergio Pedri |
+| [ComputeWeave](https://github.com/routersys/ComputeWeave) | Direct3D 12計算シェーダーとDirect3D 11・12共有処理 | MIT License | Copyright (c) 2024 Sergio Pedri |
 
 ---
 
