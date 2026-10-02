@@ -41,6 +41,19 @@ internal sealed class CausticTransportEffectProcessor : VideoEffectProcessorBase
 
     public override DrawDescription Update(EffectDescription effectDescription)
     {
+        try
+        {
+            return UpdateCore(effectDescription);
+        }
+        catch (Exception exception)
+        {
+            CausticTransportTelemetry.Report(exception);
+            throw;
+        }
+    }
+
+    private DrawDescription UpdateCore(EffectDescription effectDescription)
+    {
         if (IsPassThroughEffect || _effect is null || _outputCrop is null || _outputTransform is null || _outputTransformOutput is null || _resourceSet is null || _interopProvider is null || _pipeline is null || input is null)
             return effectDescription.DrawDescription;
 
@@ -292,6 +305,19 @@ internal sealed class CausticTransportEffectProcessor : VideoEffectProcessorBase
 
     protected override void setInput(ID2D1Image? inputImage)
     {
+        try
+        {
+            SetInputCore(inputImage);
+        }
+        catch (Exception exception)
+        {
+            CausticTransportTelemetry.Report(exception);
+            throw;
+        }
+    }
+
+    private void SetInputCore(ID2D1Image? inputImage)
+    {
         _effect?.SetInput(0, inputImage, true);
         if (!_hasOutput)
             _effect?.SetInput(1, inputImage, true);
@@ -317,6 +343,11 @@ internal sealed class CausticTransportEffectProcessor : VideoEffectProcessorBase
                 ClearEffectChain();
                 ReleaseInterop();
             }
+        }
+        catch (Exception exception)
+        {
+            CausticTransportTelemetry.Report(exception);
+            throw;
         }
         finally
         {

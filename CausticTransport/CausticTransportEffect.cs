@@ -65,7 +65,17 @@ public sealed class CausticTransportEffect : VideoEffectBase
     public override IEnumerable<string> CreateExoVideoFilters(int keyFrameIndex, ExoOutputDescription exoOutputDescription) => [];
 
     public override IVideoEffectProcessor CreateVideoEffect(IGraphicsDevicesAndContext devices)
-        => new CausticTransportEffectProcessor(devices, this);
+    {
+        try
+        {
+            return new CausticTransportEffectProcessor(devices, this);
+        }
+        catch (Exception exception)
+        {
+            CausticTransportTelemetry.Report(exception);
+            throw;
+        }
+    }
 
     protected override IEnumerable<IAnimatable> GetAnimatables()
         => _animatables ??= [Amount, Focus, ApertureSize, Dispersion, Roughness];

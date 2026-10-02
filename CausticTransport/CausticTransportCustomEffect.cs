@@ -33,7 +33,18 @@ internal sealed class CausticTransportCustomEffect(IGraphicsDevicesAndContext de
 
         protected override void UpdateConstants()
         {
-            drawInformation?.SetPixelShaderConstantBuffer(_cb);
+            if (drawInformation is null)
+                return;
+
+            try
+            {
+                drawInformation.SetPixelShaderConstantBuffer(_cb);
+            }
+            catch (Exception exception)
+            {
+                CausticTransportTelemetry.Report(exception);
+                throw;
+            }
         }
 
         public override void MapInputRectsToOutputRect(
