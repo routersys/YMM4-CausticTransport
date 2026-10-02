@@ -126,9 +126,7 @@ jobs:
           New-Item -ItemType Directory -Path $stageRoot -Force | Out-Null
           New-Item -ItemType Directory -Path "$stageRoot/LICENSE" -Force | Out-Null
 
-          Copy-Item "$outDir/CausticTransport.dll" "$stageRoot/"
-          Copy-Item "$outDir/ComputeWeave.dll" "$stageRoot/"
-          Copy-Item "$outDir/ComputeWeave.Core.dll" "$stageRoot/"
+          Copy-Item "$outDir/plugin/CausticTransport.dll" "$stageRoot/"
 
           foreach ($lang in @("ar-sa", "en-us", "es-es", "id-id", "ko-kr", "zh-cn", "zh-tw")) {
             $src = "$outDir/$lang"
