@@ -494,6 +494,9 @@ public sealed class CausticTransportPipelineTests
     [InlineData(96, 64, 64, 48)]
     [InlineData(64, 48, 96, 64)]
     [InlineData(64, 48, 64, 64)]
+    [InlineData(64, 64, 64, 48)]
+    [InlineData(64, 64, 48, 64)]
+    [InlineData(48, 64, 64, 64)]
     public void APipelineUsedAtAnotherSizeDrawsLikeAFreshOne(int firstWidth, int firstHeight, int width, int height)
     {
         using var pipeline = CreatePipeline();
@@ -504,6 +507,21 @@ public sealed class CausticTransportPipelineTests
 
         var reused = Render(pipeline, source, width, height, parameters);
         var expected = Render(fresh, source, width, height, parameters);
+
+        Assert.Equal(expected, reused);
+    }
+
+    [Fact]
+    public void APipelineWhoseFrameGrowsOnTheSameGridDrawsLikeAFreshOne()
+    {
+        using var pipeline = CreatePipeline();
+        using var fresh = CreatePipeline();
+        var parameters = Parameters(Plane, focus: 0.3f);
+        Render(pipeline, Mixed(1000, 500), 1000, 500, parameters);
+        var source = Mixed(1001, 500);
+
+        var reused = Render(pipeline, source, 1001, 500, parameters);
+        var expected = Render(fresh, source, 1001, 500, parameters);
 
         Assert.Equal(expected, reused);
     }
