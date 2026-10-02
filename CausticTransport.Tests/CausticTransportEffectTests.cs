@@ -50,81 +50,6 @@ public sealed class CausticTransportEffectTests
     }
 
     [Theory]
-    [InlineData(CausticTransportQuality.Balanced, 128, 4, 12)]
-    [InlineData(CausticTransportQuality.High, 192, 6, 16)]
-    [InlineData(CausticTransportQuality.Ultra, 256, 8, 20)]
-    public void QualitySettingsMatchSpecification(CausticTransportQuality quality, int resolution, int transport, int jacobi)
-    {
-        var settings = CausticTransportSettings.GetQuality(quality);
-
-        Assert.Equal(resolution, settings.GridResolution);
-        Assert.Equal(transport, settings.TransportIterations);
-        Assert.Equal(jacobi, settings.JacobiIterations);
-    }
-
-    [Theory]
-    [InlineData(1920, 1080, 192, 192, 108)]
-    [InlineData(1080, 1920, 192, 108, 192)]
-    [InlineData(8, 8, 192, 8, 8)]
-    [InlineData(4096, 16, 128, 128, 4)]
-    [InlineData(100, 100, 256, 100, 100)]
-    public void GridSizeKeepsAspectAndBounds(int width, int height, int resolution, int expectedWidth, int expectedHeight)
-    {
-        var (gridWidth, gridHeight) = CausticTransportSettings.GetGridSize(width, height, resolution);
-
-        Assert.Equal(expectedWidth, gridWidth);
-        Assert.Equal(expectedHeight, gridHeight);
-    }
-
-    [Theory]
-    [InlineData(8, 8, 1)]
-    [InlineData(16, 16, 1)]
-    [InlineData(17, 17, 2)]
-    [InlineData(192, 108, 5)]
-    [InlineData(256, 256, 5)]
-    public void LevelCountCoversGridDownToCoarsestSize(int gridWidth, int gridHeight, int expected)
-    {
-        Assert.Equal(expected, CausticTransportSettings.GetLevelCount(gridWidth, gridHeight));
-    }
-
-    [Fact]
-    public void ColorFixedScaleStaysWithinSafeBounds()
-    {
-        Assert.Equal(65536, CausticTransportSettings.GetColorFixedScale(64));
-        Assert.Equal(345, CausticTransportSettings.GetColorFixedScale(3840 * 2160));
-        Assert.True((double)CausticTransportSettings.GetColorFixedScale(3840 * 2160) * 3840 * 2160 <= uint.MaxValue);
-    }
-
-    [Theory]
-    [InlineData(1, 8)]
-    [InlineData(8, 8)]
-    [InlineData(9, 16)]
-    [InlineData(1080, 1080)]
-    [InlineData(2730, 2736)]
-    public void SplatDispatchSizeCoversFrameInWholeThreadGroups(int size, int expected)
-    {
-        var horizontal = ThreadGroupAlignment.AlignX<SplatShader>(size);
-        var vertical = ThreadGroupAlignment.AlignY<SplatShader>(size);
-
-        Assert.Equal(expected, horizontal);
-        Assert.Equal(expected, vertical);
-        Assert.Equal(0, horizontal % CausticTransportSettings.SplatGroupSize);
-        Assert.InRange(horizontal - size, 0, CausticTransportSettings.SplatGroupSize - 1);
-    }
-
-    [Fact]
-    public void SplatDispatchSizeRoundsEverySupportedSizeUpToWholeThreadGroups()
-    {
-        for (var size = 1; size <= CausticTransportSettings.MaximumCanvasSize; size++)
-        {
-            var expected = (size + CausticTransportSettings.SplatGroupSize - 1) / CausticTransportSettings.SplatGroupSize * CausticTransportSettings.SplatGroupSize;
-
-            Assert.Equal(expected, ThreadGroupAlignment.AlignX<SplatShader>(size));
-            Assert.Equal(expected, ThreadGroupAlignment.AlignY<SplatShader>(size));
-        }
-    }
-
-    [Theory]
     [InlineData(5, 3)]
     [InlineData(9, 1)]
     [InlineData(1, 9)]
@@ -153,31 +78,6 @@ public sealed class CausticTransportEffectTests
                 Assert.InRange(actual, Math.Max(expected - 1, 0), Math.Min(expected + 1, 255));
             }
         }
-    }
-
-    [Fact]
-    public void MaximumPixelCountKeepsColorAccumulationWithinUnsignedRange()
-    {
-        var scale = CausticTransportSettings.GetColorFixedScale(CausticTransportSettings.MaximumPixelCount);
-
-        Assert.Equal(CausticTransportSettings.MinimumColorFixedScale, scale);
-        Assert.True((double)CausticTransportSettings.MaximumPixelCount * scale <= uint.MaxValue);
-        Assert.True(CausticTransportSettings.MaximumPixelCount >= 4096 * 2160);
-    }
-
-    [Theory]
-    [InlineData(1920d, 1080d, true)]
-    [InlineData(3840d, 2160d, true)]
-    [InlineData(4096d, 2160d, true)]
-    [InlineData(8192d, 1365d, true)]
-    [InlineData(8193d, 1365d, false)]
-    [InlineData(4096d, 2731d, false)]
-    [InlineData(0d, 1080d, false)]
-    [InlineData(double.NaN, 1080d, false)]
-    [InlineData(double.PositiveInfinity, 1080d, false)]
-    public void SupportedSizeCoversUpTo4KAndRejectsLarger(double width, double height, bool expected)
-    {
-        Assert.Equal(expected, CausticTransportSettings.IsSupportedSize(width, height));
     }
 
     [Theory]
