@@ -16,6 +16,8 @@ internal static class CausticTransportSettings
     public const int SplatGroupSize = 8;
     public const int SplatTileSize = 10;
     public const int SplatTileLength = SplatTileSize * SplatTileSize * 4;
+    public const int MaximumLevelCount = 5;
+    public const int MaximumPendingSubmissions = 32;
 
     public static QualitySettings GetQuality(CausticTransportQuality quality)
         => quality switch
@@ -48,6 +50,14 @@ internal static class CausticTransportSettings
 
     public static (int Width, int Height) GetCoarserLevelSize(int width, int height)
         => (Math.Max((width + 1) / 2, MinimumGridSize), Math.Max((height + 1) / 2, MinimumGridSize));
+
+    public static (int Width, int Height) GetLevelSize(int gridWidth, int gridHeight, int level)
+    {
+        var (width, height) = (gridWidth, gridHeight);
+        for (var index = 0; index < level; index++)
+            (width, height) = GetCoarserLevelSize(width, height);
+        return (width, height);
+    }
 
     public static int GetSplatDispatchSize(int size)
         => (size + SplatGroupSize - 1) / SplatGroupSize * SplatGroupSize;

@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 using ComputeWeave;
 
@@ -6,29 +7,20 @@ namespace CausticTransport;
 internal sealed class CausticTransportPipeline : IDisposable
 {
     private readonly GraphicsDevice _device;
-    private ReadWriteBuffer<float>? _density;
-    private ReadWriteBuffer<float>? _sigma;
-    private ReadWriteBuffer<int>? _warpedFixed;
-    private ReadWriteBuffer<Float2>? _displacement;
-    private ReadWriteBuffer<Float2>? _rowSums;
-    private ReadWriteBuffer<Float2>? _scales;
-    private ReadWriteBuffer<float>[] _residuals = [];
-    private ReadWriteBuffer<float>[] _phiA = [];
-    private ReadWriteBuffer<float>[] _phiB = [];
-    private (int Width, int Height)[] _levelSizes = [];
+    private readonly CausticTransportPipelineHost _host;
+    private readonly ReadWriteBuffer<int> _syncBuffer;
     private int _gridWidth;
     private int _gridHeight;
-    private ReadWriteBuffer<uint>? _accumulator;
     private int _accumulatorCapacity;
     private ReadWriteTexture2D<Bgra32, Float4>? _packedSource;
     private ReadWriteTexture2D<Bgra32, Float4>? _packedOutput;
     private int _packedWidth;
     private int _packedHeight;
-    private readonly ReadWriteBuffer<int> _syncBuffer;
 
-    private CausticTransportPipeline(GraphicsDevice device)
+    private CausticTransportPipeline(GraphicsDevice device, CausticTransportPipelineHost host)
     {
         _device = device;
+        _host = host;
         _syncBuffer = device.AllocateReadWriteBuffer<int>(1);
     }
 
@@ -44,7 +36,7 @@ internal sealed class CausticTransportPipeline : IDisposable
     {
         try
         {
-            return new CausticTransportPipeline(GraphicsDevice.GetDefault());
+            return TryCreate(GraphicsDevice.GetDefault());
         }
         catch
         {
@@ -54,13 +46,22 @@ internal sealed class CausticTransportPipeline : IDisposable
 
     public static CausticTransportPipeline? TryCreate(GraphicsDevice device)
     {
+        CausticTransportPipelineHost? host = null;
         try
         {
-            return new CausticTransportPipeline(device);
+            host = CausticTransportPipelineHost.Create(device, CausticTransportSettings.MaximumPendingSubmissions);
+            var pipeline = new CausticTransportPipeline(device, host);
+            host = null;
+            return pipeline;
         }
-        catch
+        catch (Win32Exception)
         {
             return null;
+        }
+        finally
+        {
+            host?.Dispose();
+            host?.WaitForDisposal();
         }
     }
 
@@ -72,8 +73,7 @@ internal sealed class CausticTransportPipeline : IDisposable
         var sourceTexture = _packedSource!;
         var outputTexture = _packedOutput!;
         sourceTexture.CopyFrom(MemoryMarshal.Cast<int, Bgra32>(source[..pixelCount]));
-        using (ComputeContext context = _device.CreateComputeContext())
-            RecordPipeline(in context, sourceTexture, outputTexture, width, height, in parameters);
+        SubmitFullPipeline(sourceTexture, outputTexture, width, height, in parameters).Wait();
         outputTexture.CopyTo(MemoryMarshal.Cast<int, Bgra32>(destination[..pixelCount]));
     }
 
@@ -85,9 +85,7 @@ internal sealed class CausticTransportPipeline : IDisposable
         in Parameters parameters)
     {
         EnsureResources(width, height, parameters.Quality);
-        using ComputeContext context = _device.CreateComputeContext();
-        RecordPipeline(in context, source, destination, width, height, in parameters);
-        context.Submit();
+        _ = SubmitFullPipeline(source, destination, width, height, in parameters);
     }
 
     internal void ProcessSharedAndWait(
@@ -98,170 +96,84 @@ internal sealed class CausticTransportPipeline : IDisposable
         in Parameters parameters)
     {
         EnsureResources(width, height, parameters.Quality);
-        using ComputeContext context = _device.CreateComputeContext();
-        RecordPipeline(in context, source, destination, width, height, in parameters);
+        SubmitFullPipeline(source, destination, width, height, in parameters).Wait();
     }
 
-    private void RecordPipeline(
-        in ComputeContext context,
+    private ComputeSubmission SubmitFullPipeline(
         ReadWriteTexture2D<Bgra32, Float4> source,
         ReadWriteTexture2D<Bgra32, Float4> output,
         int width,
         int height,
         in Parameters parameters)
     {
+        var derived = Derive(width, height, in parameters);
+        return _host.RecordFullPipeline(source, output, width, height, in derived, in parameters);
+    }
+
+    private DerivedValues Derive(int width, int height, in Parameters parameters)
+    {
         var settings = CausticTransportSettings.GetQuality(parameters.Quality);
-        var gridWidth = _gridWidth;
-        var gridHeight = _gridHeight;
-        var gridLength = gridWidth * gridHeight;
-        var pixelCount = width * height;
-        var colorScale = CausticTransportSettings.GetColorFixedScale(pixelCount);
-        var levelCount = _levelSizes.Length;
-
-        var density = _density!;
-        var sigma = _sigma!;
-        var warpedFixed = _warpedFixed!;
-        var displacement = _displacement!;
-        var rowSums = _rowSums!;
-        var scales = _scales!;
-        var accumulator = _accumulator!;
-
-        context.For(gridWidth, gridHeight, new GridDepositShader(source, density, width, height, gridWidth, gridHeight));
-        context.For(gridWidth, gridHeight, new LightShapeShader(sigma, gridWidth, gridHeight, parameters.Shape, parameters.Aperture));
-        context.Barrier(density);
-        context.Barrier(sigma);
-        context.For(gridHeight, new GridRowSumShader(density, sigma, rowSums, gridWidth, gridHeight));
-        context.Barrier(rowSums);
-        context.For(1, new NormalizeScaleShader(rowSums, scales, gridHeight, gridLength));
-        context.Barrier(scales);
-        context.For(gridWidth, gridHeight, new InitializeDisplacementShader(displacement, gridWidth, gridHeight, parameters.Shape, parameters.Aperture));
-        context.Clear(warpedFixed);
-        context.Barrier(displacement);
-        context.Barrier(warpedFixed);
-
-        var coarsest = levelCount - 1;
-        for (var iteration = 0; iteration < settings.TransportIterations; iteration++)
-        {
-            context.For(gridWidth, gridHeight, new PushforwardShader(density, scales, displacement, warpedFixed, gridWidth, gridHeight, CausticTransportSettings.GridFixedScale));
-            context.Barrier(warpedFixed);
-            context.For(gridWidth, gridHeight, new ResidualShader(warpedFixed, sigma, scales, _residuals[0], gridWidth, gridHeight, 1f / CausticTransportSettings.GridFixedScale));
-            context.Barrier(_residuals[0]);
-            context.Barrier(warpedFixed);
-
-            for (var level = 1; level < levelCount; level++)
-            {
-                var (fineWidth, fineHeight) = _levelSizes[level - 1];
-                var (coarseWidth, coarseHeight) = _levelSizes[level];
-                context.For(coarseWidth, coarseHeight, new RestrictShader(_residuals[level - 1], _residuals[level], fineWidth, fineHeight, coarseWidth, coarseHeight));
-                context.Barrier(_residuals[level]);
-            }
-
-            context.Clear(_phiA[coarsest]);
-            context.Barrier(_phiA[coarsest]);
-
-            for (var level = coarsest; level >= 0; level--)
-            {
-                var (levelWidth, levelHeight) = _levelSizes[level];
-                if (level != coarsest)
-                {
-                    var (belowWidth, belowHeight) = _levelSizes[level + 1];
-                    context.For(levelWidth, levelHeight, new ProlongShader(_phiA[level + 1], _phiA[level], belowWidth, belowHeight, levelWidth, levelHeight));
-                    context.Barrier(_phiA[level]);
-                }
-                for (var step = 0; step < settings.JacobiIterations; step++)
-                {
-                    var reading = (step & 1) == 0 ? _phiA[level] : _phiB[level];
-                    var writing = (step & 1) == 0 ? _phiB[level] : _phiA[level];
-                    context.For(levelWidth, levelHeight, new JacobiShader(reading, _residuals[level], writing, levelWidth, levelHeight));
-                    context.Barrier(writing);
-                }
-            }
-
-            context.For(gridWidth, gridHeight, new UpdateDisplacementShader(_phiA[0], displacement, gridWidth, gridHeight, CausticTransportSettings.DisplacementRelaxation, CausticTransportSettings.DisplacementStepLimit));
-            context.Barrier(displacement);
-        }
-
-        context.Clear(accumulator);
-        context.Barrier(accumulator);
-        var movement = 1f - parameters.Focus;
-        var jitterAmplitude = parameters.Roughness * CausticTransportSettings.JitterCellAmplitude;
-        context.For(
-            CausticTransportSettings.GetSplatDispatchSize(width),
-            CausticTransportSettings.GetSplatDispatchSize(height),
-            new SplatShader(
-                source,
-                displacement,
-                accumulator,
-                width,
-                height,
-                gridWidth,
-                gridHeight,
-                movement,
-                parameters.Dispersion,
-                jitterAmplitude,
-                parameters.Seed,
-                colorScale));
-        context.Barrier(accumulator);
-        context.For(width, height, new ResolveShader(accumulator, output, width, height, 1f / colorScale));
+        return new DerivedValues(
+            _gridWidth,
+            _gridHeight,
+            CausticTransportSettings.GetLevelCount(_gridWidth, _gridHeight),
+            settings.TransportIterations,
+            settings.JacobiIterations,
+            CausticTransportSettings.GetColorFixedScale(checked(width * height)));
     }
 
     private void EnsureResources(int width, int height, CausticTransportQuality quality)
     {
         var settings = CausticTransportSettings.GetQuality(quality);
         var (gridWidth, gridHeight) = CausticTransportSettings.GetGridSize(width, height, settings.GridResolution);
-        EnsureGrid(gridWidth, gridHeight);
-        EnsureAccumulator(checked(width * height));
-    }
-
-    private void EnsureGrid(int gridWidth, int gridHeight)
-    {
-        if (_gridWidth == gridWidth && _gridHeight == gridHeight)
+        var pixelCount = checked(width * height);
+        if (_gridWidth == gridWidth && _gridHeight == gridHeight && _accumulatorCapacity >= pixelCount)
             return;
 
-        DisposeGridBuffers();
+        var accumulatorCapacity = Math.Max(_accumulatorCapacity, pixelCount);
         var gridLength = gridWidth * gridHeight;
         var levelCount = CausticTransportSettings.GetLevelCount(gridWidth, gridHeight);
-        var levelSizes = new (int Width, int Height)[levelCount];
-        var residuals = new ReadWriteBuffer<float>[levelCount];
-        var phiA = new ReadWriteBuffer<float>[levelCount];
-        var phiB = new ReadWriteBuffer<float>[levelCount];
-        var (levelWidth, levelHeight) = (gridWidth, gridHeight);
+        if (levelCount > CausticTransportSettings.MaximumLevelCount)
+            throw new InvalidOperationException();
+
+        Span<int> levelLengths = stackalloc int[CausticTransportSettings.MaximumLevelCount];
+        levelLengths.Fill(1);
         for (var level = 0; level < levelCount; level++)
         {
-            levelSizes[level] = (levelWidth, levelHeight);
-            var levelLength = levelWidth * levelHeight;
-            residuals[level] = _device.AllocateReadWriteBuffer<float>(levelLength);
-            phiA[level] = _device.AllocateReadWriteBuffer<float>(levelLength);
-            phiB[level] = _device.AllocateReadWriteBuffer<float>(levelLength);
-            (levelWidth, levelHeight) = CausticTransportSettings.GetCoarserLevelSize(levelWidth, levelHeight);
+            var (levelWidth, levelHeight) = CausticTransportSettings.GetLevelSize(gridWidth, gridHeight, level);
+            levelLengths[level] = levelWidth * levelHeight;
         }
 
-        _density = _device.AllocateReadWriteBuffer<float>(gridLength);
-        _sigma = _device.AllocateReadWriteBuffer<float>(gridLength);
-        _warpedFixed = _device.AllocateReadWriteBuffer<int>(gridLength);
-        _displacement = _device.AllocateReadWriteBuffer<Float2>(gridLength);
-        _rowSums = _device.AllocateReadWriteBuffer<Float2>(gridHeight);
-        _scales ??= _device.AllocateReadWriteBuffer<Float2>(1);
-        _residuals = residuals;
-        _phiA = phiA;
-        _phiB = phiB;
-        _levelSizes = levelSizes;
+        if (!_host.TryEnsureGrid(
+                new CausticTransportGridResources.Plan(
+                    accumulatorLength: checked(accumulatorCapacity * 4),
+                    densityLength: gridLength,
+                    displacementLength: gridLength,
+                    phiA0Length: levelLengths[0],
+                    phiA1Length: levelLengths[1],
+                    phiA2Length: levelLengths[2],
+                    phiA3Length: levelLengths[3],
+                    phiA4Length: levelLengths[4],
+                    phiB0Length: levelLengths[0],
+                    phiB1Length: levelLengths[1],
+                    phiB2Length: levelLengths[2],
+                    phiB3Length: levelLengths[3],
+                    phiB4Length: levelLengths[4],
+                    residual0Length: levelLengths[0],
+                    residual1Length: levelLengths[1],
+                    residual2Length: levelLengths[2],
+                    residual3Length: levelLengths[3],
+                    residual4Length: levelLengths[4],
+                    rowSumsLength: gridHeight,
+                    scalesLength: 1,
+                    sigmaLength: gridLength,
+                    warpedFixedLength: gridLength),
+                out _))
+            throw new InvalidOperationException();
+
         _gridWidth = gridWidth;
         _gridHeight = gridHeight;
-    }
-
-    private void EnsureAccumulator(int pixelCount)
-    {
-        if (_accumulatorCapacity >= pixelCount)
-            return;
-
-        if (_accumulator is not null)
-        {
-            SynchronizeDevice();
-            _accumulator.Dispose();
-        }
-        _accumulator = _device.AllocateReadWriteBuffer<uint>(pixelCount * 4);
-        _accumulatorCapacity = pixelCount;
+        _accumulatorCapacity = accumulatorCapacity;
     }
 
     private void EnsurePackedTextures(int width, int height)
@@ -269,53 +181,20 @@ internal sealed class CausticTransportPipeline : IDisposable
         if (_packedWidth == width && _packedHeight == height)
             return;
 
-        if (_packedSource is not null)
-        {
-            SynchronizeDevice();
-            _packedSource.Dispose();
-            _packedOutput?.Dispose();
-        }
+        _packedSource?.Dispose();
+        _packedOutput?.Dispose();
         _packedSource = _device.AllocateReadWriteTexture2D<Bgra32, Float4>(width, height);
         _packedOutput = _device.AllocateReadWriteTexture2D<Bgra32, Float4>(width, height);
         _packedWidth = width;
         _packedHeight = height;
     }
 
-    private void DisposeGridBuffers()
-    {
-        if (_gridWidth != 0)
-            SynchronizeDevice();
-        foreach (var buffer in _residuals)
-            buffer.Dispose();
-        foreach (var buffer in _phiA)
-            buffer.Dispose();
-        foreach (var buffer in _phiB)
-            buffer.Dispose();
-        _residuals = [];
-        _phiA = [];
-        _phiB = [];
-        _levelSizes = [];
-        _density?.Dispose();
-        _sigma?.Dispose();
-        _warpedFixed?.Dispose();
-        _displacement?.Dispose();
-        _rowSums?.Dispose();
-        _density = null;
-        _sigma = null;
-        _warpedFixed = null;
-        _displacement = null;
-        _rowSums = null;
-        _gridWidth = 0;
-        _gridHeight = 0;
-    }
-
     public void Dispose()
     {
-        DisposeGridBuffers();
-        _scales?.Dispose();
-        _scales = null;
-        _accumulator?.Dispose();
-        _accumulator = null;
+        _host.Dispose();
+        _host.WaitForDisposal();
+        _gridWidth = 0;
+        _gridHeight = 0;
         _accumulatorCapacity = 0;
         _packedSource?.Dispose();
         _packedOutput?.Dispose();
@@ -325,6 +204,14 @@ internal sealed class CausticTransportPipeline : IDisposable
         _packedHeight = 0;
         _syncBuffer.Dispose();
     }
+
+    internal readonly record struct DerivedValues(
+        int GridWidth,
+        int GridHeight,
+        int LevelCount,
+        int TransportIterations,
+        int JacobiIterations,
+        int ColorScale);
 
     internal readonly record struct Parameters(
         int Shape,
