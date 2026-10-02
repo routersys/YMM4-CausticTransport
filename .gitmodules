@@ -4,6 +4,3 @@
 [submodule "YMM4-GitHubUpdateNotifier"]
 	path = YMM4-GitHubUpdateNotifier
 	url = https://github.com/routersys/YMM4-GitHubUpdateNotifier.git
-[submodule "ComputeSharp"]
-	path = ComputeSharp
-	url = https://github.com/routersys/ComputeSharp.git
