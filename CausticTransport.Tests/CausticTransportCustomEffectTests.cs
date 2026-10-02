@@ -1,5 +1,7 @@
 using System.Numerics;
+using System.Reflection;
 using System.Runtime.InteropServices;
+using Vortice;
 using Vortice.DCommon;
 using Vortice.Direct2D1;
 using Vortice.Direct2D1.Effects;
@@ -182,6 +184,25 @@ public sealed class CausticTransportCustomEffectTests
         var expectedSecond = Mix(Blue.Premultiplied(), HalfLight.Premultiplied(), 0.75f);
         Assert.All(first.Coordinates(), point => Assert.True(WithinRounding(expectedFirst, first[point.X, point.Y])));
         Assert.All(second.Coordinates(), point => Assert.True(WithinRounding(expectedSecond, second[point.X, point.Y])));
+    }
+
+    [Fact]
+    public void WithoutAnyInputTheOutputRectIsEmptyAndWithInputsItIsTheFirstOne()
+    {
+        var type = typeof(CausticTransportCustomEffect).GetNestedType("EffectImpl", BindingFlags.NonPublic)!;
+        var implementation = Activator.CreateInstance(type)!;
+        var method = type.GetMethod("MapInputRectsToOutputRect")!;
+        var first = new RawRect(3, 4, 50, 60);
+        var second = new RawRect(1, 1, 99, 99);
+
+        var none = new object?[] { Array.Empty<RawRect>(), Array.Empty<RawRect>(), default(RawRect), default(RawRect) };
+        method.Invoke(implementation, none);
+        var some = new object?[] { new[] { first, second }, new RawRect[2], default(RawRect), default(RawRect) };
+        method.Invoke(implementation, some);
+
+        Assert.Equal(default(RawRect), (RawRect)none[2]!);
+        Assert.Equal(first, (RawRect)some[2]!);
+        Assert.Equal(default(RawRect), (RawRect)some[3]!);
     }
 
     [Fact]
