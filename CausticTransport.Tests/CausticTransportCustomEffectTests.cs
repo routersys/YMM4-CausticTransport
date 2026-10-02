@@ -1,11 +1,8 @@
 using System.Numerics;
 using System.Reflection;
-using System.Runtime.InteropServices;
 using Vortice;
-using Vortice.DCommon;
 using Vortice.Direct2D1;
 using Vortice.Direct2D1.Effects;
-using Vortice.DXGI;
 using Vortice.Mathematics;
 using YukkuriMovieMaker.Commons;
 
