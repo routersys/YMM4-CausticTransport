@@ -64,6 +64,11 @@ internal static class HarnessCases
         yield return ("shape-circle", Create(effect => effect.LightShape = CausticLightShape.Circle));
         yield return ("dispersion-0", Create(effect => effect.Dispersion.Values[0].Value = 0));
         yield return ("focus-animated", Create(effect => effect.Focus.CopyFrom(Linear(20d, 80d))));
+        yield return ("aperture-animated", Create(effect =>
+        {
+            effect.LightShape = CausticLightShape.Circle;
+            effect.ApertureSize.CopyFrom(Linear(30d, 80d));
+        }));
         yield return ("amount-0", Create(effect => effect.Amount.Values[0].Value = 0));
     }
 
