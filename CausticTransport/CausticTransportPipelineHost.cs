@@ -258,17 +258,40 @@ internal sealed partial class CausticTransportPipelineHost
                 var (belowWidth, belowHeight) = CausticTransportSettings.GetLevelSize(gridWidth, gridHeight, level + 1);
                 context.For(levelWidth, levelHeight, new ProlongShader(grid.GetPhiA(level + 1), grid.GetPhiA(level), belowWidth, belowHeight, levelWidth, levelHeight));
                 context.Barrier(grid.GetPhiA(level));
-                for (var step = 0; step < derived.JacobiIterations; step++)
-                {
-                    var reading = (step & 1) == 0 ? grid.GetPhiA(level) : grid.GetPhiB(level);
-                    var writing = (step & 1) == 0 ? grid.GetPhiB(level) : grid.GetPhiA(level);
-                    context.For(levelWidth, levelHeight, new JacobiShader(reading, grid.GetResidual(level), writing, levelWidth, levelHeight));
-                    context.Barrier(writing);
-                }
+                RecordRelaxation(in context, grid, level, levelWidth, levelHeight, derived.JacobiIterations);
             }
 
             context.For(gridWidth, gridHeight, new UpdateDisplacementShader(grid.PhiA0, grid.Displacement, gridWidth, gridHeight, CausticTransportSettings.DisplacementRelaxation, CausticTransportSettings.DisplacementStepLimit));
             context.Barrier(grid.Displacement);
+        }
+    }
+
+    private static void RecordRelaxation(
+        in ComputeContext context,
+        CausticTransportGridResources grid,
+        int level,
+        int levelWidth,
+        int levelHeight,
+        int jacobiIterations)
+    {
+        var blockSteps = CausticTransportSettings.GetJacobiBlockSteps(jacobiIterations);
+        var passes = blockSteps > 0 ? CausticTransportSettings.JacobiBlockCount : jacobiIterations;
+        for (var pass = 0; pass < passes; pass++)
+        {
+            var reading = (pass & 1) == 0 ? grid.GetPhiA(level) : grid.GetPhiB(level);
+            var writing = (pass & 1) == 0 ? grid.GetPhiB(level) : grid.GetPhiA(level);
+            if (blockSteps > 0)
+            {
+                context.For(
+                    ThreadGroupAlignment.AlignX<JacobiBlockShader>(levelWidth),
+                    ThreadGroupAlignment.AlignY<JacobiBlockShader>(levelHeight),
+                    new JacobiBlockShader(reading, grid.GetResidual(level), writing, levelWidth, levelHeight, blockSteps));
+            }
+            else
+            {
+                context.For(levelWidth, levelHeight, new JacobiShader(reading, grid.GetResidual(level), writing, levelWidth, levelHeight));
+            }
+            context.Barrier(writing);
         }
     }
 

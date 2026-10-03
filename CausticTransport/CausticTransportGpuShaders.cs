@@ -391,6 +391,98 @@ internal readonly partial struct JacobiShader(
     }
 }
 
+[ThreadGroupSize(CausticTransportSettings.JacobiTileSize, CausticTransportSettings.JacobiTileSize, 1)]
+[GeneratedComputeShaderDescriptor]
+internal readonly partial struct JacobiBlockShader(
+    ReadWriteBuffer<float> phiIn,
+    ReadWriteBuffer<float> residual,
+    ReadWriteBuffer<float> phiOut,
+    int gridWidth,
+    int gridHeight,
+    int steps) : IComputeShader
+{
+    private readonly ReadWriteBuffer<float> phiIn = phiIn;
+    private readonly ReadWriteBuffer<float> residual = residual;
+    private readonly ReadWriteBuffer<float> phiOut = phiOut;
+    private readonly int gridWidth = gridWidth;
+    private readonly int gridHeight = gridHeight;
+    private readonly int steps = steps;
+
+    [GroupShared(CausticTransportSettings.JacobiBlockLength)]
+    private static readonly float[] phiA = null!;
+
+    [GroupShared(CausticTransportSettings.JacobiBlockLength)]
+    private static readonly float[] phiB = null!;
+
+    [GroupShared(CausticTransportSettings.JacobiBlockLength)]
+    private static readonly float[] residualTile = null!;
+
+    public void Execute()
+    {
+        var threadIndex = GroupIds.Index;
+        var threadCount = GroupSize.Count;
+        var span = CausticTransportSettings.JacobiTileSize + 2 * steps;
+        var regionX = ThreadIds.X - GroupIds.X - steps;
+        var regionY = ThreadIds.Y - GroupIds.Y - steps;
+        var regionLength = span * span;
+
+        for (var local = threadIndex; local < regionLength; local += threadCount)
+        {
+            var ly = local / span;
+            var lx = local - ly * span;
+            var gx = regionX + lx;
+            var gy = regionY + ly;
+            if (gx >= 0 && gx < gridWidth && gy >= 0 && gy < gridHeight)
+            {
+                phiA[local] = phiIn[gy * gridWidth + gx];
+                residualTile[local] = residual[gy * gridWidth + gx];
+            }
+        }
+        Hlsl.GroupMemoryBarrierWithGroupSync();
+
+        for (var step = 0; step < steps; step++)
+        {
+            for (var local = threadIndex; local < regionLength; local += threadCount)
+            {
+                var ly = local / span;
+                var lx = local - ly * span;
+                var gx = regionX + lx;
+                var gy = regionY + ly;
+                if (gx < 0 || gx >= gridWidth || gy < 0 || gy >= gridHeight)
+                    continue;
+
+                if ((step & 1) == 0)
+                {
+                    var center = phiA[local];
+                    var left = gx > 0 && lx > 0 ? phiA[local - 1] : center;
+                    var right = gx < gridWidth - 1 && lx < span - 1 ? phiA[local + 1] : center;
+                    var up = gy > 0 && ly > 0 ? phiA[local - span] : center;
+                    var down = gy < gridHeight - 1 && ly < span - 1 ? phiA[local + span] : center;
+                    phiB[local] = (left + right + up + down - residualTile[local]) * 0.25f;
+                }
+                else
+                {
+                    var center = phiB[local];
+                    var left = gx > 0 && lx > 0 ? phiB[local - 1] : center;
+                    var right = gx < gridWidth - 1 && lx < span - 1 ? phiB[local + 1] : center;
+                    var up = gy > 0 && ly > 0 ? phiB[local - span] : center;
+                    var down = gy < gridHeight - 1 && ly < span - 1 ? phiB[local + span] : center;
+                    phiA[local] = (left + right + up + down - residualTile[local]) * 0.25f;
+                }
+            }
+            Hlsl.GroupMemoryBarrierWithGroupSync();
+        }
+
+        var x = ThreadIds.X;
+        var y = ThreadIds.Y;
+        if (x >= gridWidth || y >= gridHeight)
+            return;
+
+        var own = (GroupIds.Y + steps) * span + GroupIds.X + steps;
+        phiOut[y * gridWidth + x] = (steps & 1) == 0 ? phiA[own] : phiB[own];
+    }
+}
+
 [ThreadGroupSize(DefaultThreadGroupSizes.XY)]
 [GeneratedComputeShaderDescriptor]
 internal readonly partial struct ProlongShader(

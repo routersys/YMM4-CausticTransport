@@ -20,6 +20,11 @@ internal static class CausticTransportSettings
     public const int MaximumLevelCount = 5;
     public const int CoarseSolveThreads = 1024;
     public const int CoarseSolveCapacity = 8000;
+    public const int JacobiTileSize = 16;
+    public const int JacobiBlockCount = 4;
+    public const int JacobiBlockMaximumSteps = 5;
+    public const int JacobiBlockSpan = JacobiTileSize + 2 * JacobiBlockMaximumSteps;
+    public const int JacobiBlockLength = JacobiBlockSpan * JacobiBlockSpan;
     public const int MaximumPendingSubmissions = 32;
     public const int SourceHashLength = 2;
     public const int SourceHashSum = 0;
@@ -81,6 +86,14 @@ internal static class CausticTransportSettings
                 return level;
         }
         return levelCount - 1;
+    }
+
+    public static int GetJacobiBlockSteps(int jacobiIterations)
+    {
+        if (jacobiIterations <= 0 || jacobiIterations % JacobiBlockCount != 0)
+            return 0;
+        var steps = jacobiIterations / JacobiBlockCount;
+        return steps <= JacobiBlockMaximumSteps ? steps : 0;
     }
 
     public static bool IsSupportedSize(double width, double height)
