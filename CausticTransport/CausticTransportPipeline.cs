@@ -12,6 +12,10 @@ internal sealed class CausticTransportPipeline : IDisposable
     private readonly ReadWriteBuffer<int> _sourceHash;
     private readonly ReadBackBuffer<int> _sourceHashReadBack;
     private TransportKey? _transportKey;
+    private ComputeSubmission _pendingSourceHash;
+    private bool _hasPendingSourceHash;
+    private ContentHash? _lastSourceHash;
+    private bool _sourceChanging;
     private int _gridWidth;
     private int _gridHeight;
     private int _accumulatorCapacity;
@@ -123,23 +127,53 @@ internal sealed class CausticTransportPipeline : IDisposable
     {
         EnsureResources(width, height, parameters.Quality);
         var derived = Derive(width, height, in parameters);
-        _host.RecordSharedDeposit(source, _sourceHash, width, height, in derived).Wait();
-        _sourceHashReadBack.CopyFrom(_sourceHash);
-        var hashed = _sourceHashReadBack.Span;
-        var sourceHash = new ContentHash(hashed[CausticTransportSettings.SourceHashSum], hashed[CausticTransportSettings.SourceHashMix]);
-        var key = new TransportKey(
-            sourceHash,
+        ResolvePendingSourceHash();
+        var deposited = _host.RecordSharedDeposit(source, _sourceHash, width, height, in derived);
+        var transportParameters = new TransportParameters(
             width,
             height,
             parameters.Quality,
             parameters.Shape,
             parameters.Shape == (int)CausticLightShape.Plane ? 0f : parameters.Aperture);
-        if (_transportKey == key)
-            return false;
+        ContentHash? sourceHash = null;
+        if (!_sourceChanging && _transportKey is { Source: not null } current && current.Parameters == transportParameters)
+        {
+            deposited.Wait();
+            sourceHash = ReadSourceHash();
+            if (current.Source == sourceHash)
+                return false;
+        }
+        else
+        {
+            _pendingSourceHash = deposited;
+            _hasPendingSourceHash = true;
+        }
 
         _ = _host.RecordTransport(in derived, in parameters);
-        _transportKey = key;
+        _transportKey = new TransportKey(transportParameters, sourceHash);
         return true;
+    }
+
+    private void ResolvePendingSourceHash()
+    {
+        if (!_hasPendingSourceHash)
+            return;
+
+        _hasPendingSourceHash = false;
+        _pendingSourceHash.Wait();
+        var sourceHash = ReadSourceHash();
+        if (_transportKey is { Source: null } key)
+            _transportKey = key with { Source = sourceHash };
+    }
+
+    private ContentHash ReadSourceHash()
+    {
+        _sourceHashReadBack.CopyFrom(_sourceHash);
+        var hashed = _sourceHashReadBack.Span;
+        var sourceHash = new ContentHash(hashed[CausticTransportSettings.SourceHashSum], hashed[CausticTransportSettings.SourceHashMix]);
+        _sourceChanging = _lastSourceHash is { } last && last != sourceHash;
+        _lastSourceHash = sourceHash;
+        return sourceHash;
     }
 
     internal void Render(
@@ -161,6 +195,9 @@ internal sealed class CausticTransportPipeline : IDisposable
         in Parameters parameters)
     {
         _transportKey = null;
+        _hasPendingSourceHash = false;
+        _lastSourceHash = null;
+        _sourceChanging = false;
         var derived = Derive(width, height, in parameters);
         return _host.RecordFullPipeline(source, output, _sourceHash, width, height, in derived, in parameters);
     }
@@ -264,13 +301,16 @@ internal sealed class CausticTransportPipeline : IDisposable
 
     internal readonly record struct ContentHash(int Sum, int Mix);
 
-    private readonly record struct TransportKey(
-        ContentHash Source,
+    private readonly record struct TransportParameters(
         int Width,
         int Height,
         CausticTransportQuality Quality,
         int Shape,
         float Aperture);
+
+    private readonly record struct TransportKey(
+        TransportParameters Parameters,
+        ContentHash? Source);
 
     internal readonly record struct DerivedValues(
         int GridWidth,
