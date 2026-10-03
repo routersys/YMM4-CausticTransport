@@ -217,7 +217,11 @@ internal sealed partial class CausticTransportPipelineHost
         context.Barrier(grid.Displacement);
         context.Barrier(grid.WarpedFixed);
 
-        var coarsest = levelCount - 1;
+        var coarseLevel = CausticTransportSettings.GetCoarseSolveLevel(gridWidth, gridHeight);
+        var (coarseLevelWidth, coarseLevelHeight) = CausticTransportSettings.GetLevelSize(gridWidth, gridHeight, coarseLevel);
+        var (coarseFineWidth, coarseFineHeight) = coarseLevel > 0
+            ? CausticTransportSettings.GetLevelSize(gridWidth, gridHeight, coarseLevel - 1)
+            : (gridWidth, gridHeight);
         for (var iteration = 0; iteration < derived.TransportIterations; iteration++)
         {
             context.For(gridWidth, gridHeight, new PushforwardShader(grid.Density, grid.Scales, grid.Displacement, grid.WarpedFixed, gridWidth, gridHeight, CausticTransportSettings.GridFixedScale));
@@ -226,7 +230,7 @@ internal sealed partial class CausticTransportPipelineHost
             context.Barrier(grid.Residual0);
             context.Barrier(grid.WarpedFixed);
 
-            for (var level = 1; level < levelCount; level++)
+            for (var level = 1; level < coarseLevel; level++)
             {
                 var (fineWidth, fineHeight) = CausticTransportSettings.GetLevelSize(gridWidth, gridHeight, level - 1);
                 var (coarseWidth, coarseHeight) = CausticTransportSettings.GetLevelSize(gridWidth, gridHeight, level);
@@ -234,18 +238,26 @@ internal sealed partial class CausticTransportPipelineHost
                 context.Barrier(grid.GetResidual(level));
             }
 
-            context.Clear(grid.GetPhiA(coarsest));
-            context.Barrier(grid.GetPhiA(coarsest));
+            context.For(
+                CausticTransportSettings.CoarseSolveThreads,
+                new CoarseSolveShader(
+                    coarseLevel > 0 ? grid.GetResidual(coarseLevel - 1) : grid.Residual0,
+                    grid.GetPhiA(coarseLevel),
+                    coarseFineWidth,
+                    coarseFineHeight,
+                    coarseLevelWidth,
+                    coarseLevelHeight,
+                    levelCount - coarseLevel,
+                    derived.JacobiIterations,
+                    coarseLevel > 0 ? 1 : 0));
+            context.Barrier(grid.GetPhiA(coarseLevel));
 
-            for (var level = coarsest; level >= 0; level--)
+            for (var level = coarseLevel - 1; level >= 0; level--)
             {
                 var (levelWidth, levelHeight) = CausticTransportSettings.GetLevelSize(gridWidth, gridHeight, level);
-                if (level != coarsest)
-                {
-                    var (belowWidth, belowHeight) = CausticTransportSettings.GetLevelSize(gridWidth, gridHeight, level + 1);
-                    context.For(levelWidth, levelHeight, new ProlongShader(grid.GetPhiA(level + 1), grid.GetPhiA(level), belowWidth, belowHeight, levelWidth, levelHeight));
-                    context.Barrier(grid.GetPhiA(level));
-                }
+                var (belowWidth, belowHeight) = CausticTransportSettings.GetLevelSize(gridWidth, gridHeight, level + 1);
+                context.For(levelWidth, levelHeight, new ProlongShader(grid.GetPhiA(level + 1), grid.GetPhiA(level), belowWidth, belowHeight, levelWidth, levelHeight));
+                context.Barrier(grid.GetPhiA(level));
                 for (var step = 0; step < derived.JacobiIterations; step++)
                 {
                     var reading = (step & 1) == 0 ? grid.GetPhiA(level) : grid.GetPhiB(level);

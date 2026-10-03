@@ -18,6 +18,8 @@ internal static class CausticTransportSettings
     public const int SplatTileMargin = 2;
     public const int SplatTileLength = SplatTileSize * SplatTileSize * 4;
     public const int MaximumLevelCount = 5;
+    public const int CoarseSolveThreads = 1024;
+    public const int CoarseSolveCapacity = 8000;
     public const int MaximumPendingSubmissions = 32;
     public const int SourceHashLength = 2;
     public const int SourceHashSum = 0;
@@ -61,6 +63,24 @@ internal static class CausticTransportSettings
         for (var index = 0; index < level; index++)
             (width, height) = GetCoarserLevelSize(width, height);
         return (width, height);
+    }
+
+    public static int GetCoarseSolveLevel(int gridWidth, int gridHeight)
+    {
+        var levelCount = GetLevelCount(gridWidth, gridHeight);
+        for (var level = 0; level < levelCount - 1; level++)
+        {
+            var (width, height) = GetLevelSize(gridWidth, gridHeight, level);
+            var required = 2 * width * height;
+            for (var coarser = level; coarser < levelCount; coarser++)
+            {
+                var (coarserWidth, coarserHeight) = GetLevelSize(gridWidth, gridHeight, coarser);
+                required += coarserWidth * coarserHeight;
+            }
+            if (required <= CoarseSolveCapacity)
+                return level;
+        }
+        return levelCount - 1;
     }
 
     public static bool IsSupportedSize(double width, double height)

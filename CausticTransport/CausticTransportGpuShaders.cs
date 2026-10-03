@@ -430,6 +430,160 @@ internal readonly partial struct ProlongShader(
     }
 }
 
+[ThreadGroupSize(CausticTransportSettings.CoarseSolveThreads, 1, 1)]
+[GeneratedComputeShaderDescriptor]
+internal readonly partial struct CoarseSolveShader(
+    ReadWriteBuffer<float> fineResidual,
+    ReadWriteBuffer<float> phi,
+    int fineWidth,
+    int fineHeight,
+    int levelWidth,
+    int levelHeight,
+    int levelCount,
+    int jacobiIterations,
+    int restrictFirst) : IComputeShader
+{
+    private readonly ReadWriteBuffer<float> fineResidual = fineResidual;
+    private readonly ReadWriteBuffer<float> phi = phi;
+    private readonly int fineWidth = fineWidth;
+    private readonly int fineHeight = fineHeight;
+    private readonly int levelWidth = levelWidth;
+    private readonly int levelHeight = levelHeight;
+    private readonly int levelCount = levelCount;
+    private readonly int jacobiIterations = jacobiIterations;
+    private readonly int restrictFirst = restrictFirst;
+
+    [GroupShared(CausticTransportSettings.CoarseSolveCapacity)]
+    private static readonly float[] shared = null!;
+
+    public void Execute()
+    {
+        var thread = ThreadIds.X;
+        var levelLength = levelWidth * levelHeight;
+        for (var index = thread; index < levelLength; index += CausticTransportSettings.CoarseSolveThreads)
+        {
+            if (restrictFirst != 0)
+            {
+                var cy = index / levelWidth;
+                var cx = index - cy * levelWidth;
+                var fx0 = Hlsl.Min(cx * 2, fineWidth - 1);
+                var fx1 = Hlsl.Min(cx * 2 + 1, fineWidth - 1);
+                var fy0 = Hlsl.Min(cy * 2, fineHeight - 1);
+                var fy1 = Hlsl.Min(cy * 2 + 1, fineHeight - 1);
+                shared[index] =
+                    fineResidual[fy0 * fineWidth + fx0] +
+                    fineResidual[fy0 * fineWidth + fx1] +
+                    fineResidual[fy1 * fineWidth + fx0] +
+                    fineResidual[fy1 * fineWidth + fx1];
+            }
+            else
+            {
+                shared[index] = fineResidual[index];
+            }
+        }
+        Hlsl.GroupMemoryBarrierWithGroupSync();
+
+        var width = levelWidth;
+        var height = levelHeight;
+        var offset = 0;
+        for (var level = 1; level < levelCount; level++)
+        {
+            var coarseWidth = Hlsl.Max((width + 1) / 2, CausticTransportSettings.MinimumGridSize);
+            var coarseHeight = Hlsl.Max((height + 1) / 2, CausticTransportSettings.MinimumGridSize);
+            var coarseOffset = offset + width * height;
+            for (var index = thread; index < coarseWidth * coarseHeight; index += CausticTransportSettings.CoarseSolveThreads)
+            {
+                var cy = index / coarseWidth;
+                var cx = index - cy * coarseWidth;
+                var fx0 = Hlsl.Min(cx * 2, width - 1);
+                var fx1 = Hlsl.Min(cx * 2 + 1, width - 1);
+                var fy0 = Hlsl.Min(cy * 2, height - 1);
+                var fy1 = Hlsl.Min(cy * 2 + 1, height - 1);
+                shared[coarseOffset + index] =
+                    shared[offset + fy0 * width + fx0] +
+                    shared[offset + fy0 * width + fx1] +
+                    shared[offset + fy1 * width + fx0] +
+                    shared[offset + fy1 * width + fx1];
+            }
+            Hlsl.GroupMemoryBarrierWithGroupSync();
+            offset = coarseOffset;
+            width = coarseWidth;
+            height = coarseHeight;
+        }
+
+        var regionA = offset + width * height;
+        var regionB = regionA + levelLength;
+        for (var index = thread; index < width * height; index += CausticTransportSettings.CoarseSolveThreads)
+            shared[regionA + index] = 0f;
+        Hlsl.GroupMemoryBarrierWithGroupSync();
+        Relax(regionA, regionB, offset, width, height, thread);
+
+        for (var level = levelCount - 2; level >= 0; level--)
+        {
+            var fineLevelWidth = levelWidth;
+            var fineLevelHeight = levelHeight;
+            var fineOffset = 0;
+            for (var step = 0; step < level; step++)
+            {
+                fineOffset += fineLevelWidth * fineLevelHeight;
+                fineLevelWidth = Hlsl.Max((fineLevelWidth + 1) / 2, CausticTransportSettings.MinimumGridSize);
+                fineLevelHeight = Hlsl.Max((fineLevelHeight + 1) / 2, CausticTransportSettings.MinimumGridSize);
+            }
+
+            for (var index = thread; index < fineLevelWidth * fineLevelHeight; index += CausticTransportSettings.CoarseSolveThreads)
+            {
+                var fy = index / fineLevelWidth;
+                var fx = index - fy * fineLevelWidth;
+                var px = Hlsl.Clamp((fx + 0.5f) * width / fineLevelWidth - 0.5f, 0f, width - 1f);
+                var py = Hlsl.Clamp((fy + 0.5f) * height / fineLevelHeight - 0.5f, 0f, height - 1f);
+                var ix0 = (int)px;
+                var iy0 = (int)py;
+                var wx = px - ix0;
+                var wy = py - iy0;
+                var ix1 = Hlsl.Min(ix0 + 1, width - 1);
+                var iy1 = Hlsl.Min(iy0 + 1, height - 1);
+
+                var top = Hlsl.Lerp(shared[regionA + iy0 * width + ix0], shared[regionA + iy0 * width + ix1], wx);
+                var bottom = Hlsl.Lerp(shared[regionA + iy1 * width + ix0], shared[regionA + iy1 * width + ix1], wx);
+                shared[regionB + index] = Hlsl.Lerp(top, bottom, wy);
+            }
+            Hlsl.GroupMemoryBarrierWithGroupSync();
+
+            var swapped = regionA;
+            regionA = regionB;
+            regionB = swapped;
+            width = fineLevelWidth;
+            height = fineLevelHeight;
+            offset = fineOffset;
+            Relax(regionA, regionB, offset, width, height, thread);
+        }
+
+        for (var index = thread; index < levelLength; index += CausticTransportSettings.CoarseSolveThreads)
+            phi[index] = shared[regionA + index];
+    }
+
+    private void Relax(int regionA, int regionB, int residualOffset, int width, int height, int thread)
+    {
+        for (var step = 0; step < jacobiIterations; step++)
+        {
+            var reading = (step & 1) == 0 ? regionA : regionB;
+            var writing = (step & 1) == 0 ? regionB : regionA;
+            for (var index = thread; index < width * height; index += CausticTransportSettings.CoarseSolveThreads)
+            {
+                var gy = index / width;
+                var gx = index - gy * width;
+                var center = shared[reading + index];
+                var left = gx > 0 ? shared[reading + index - 1] : center;
+                var right = gx < width - 1 ? shared[reading + index + 1] : center;
+                var up = gy > 0 ? shared[reading + index - width] : center;
+                var down = gy < height - 1 ? shared[reading + index + width] : center;
+                shared[writing + index] = (left + right + up + down - shared[residualOffset + index]) * 0.25f;
+            }
+            Hlsl.GroupMemoryBarrierWithGroupSync();
+        }
+    }
+}
+
 [ThreadGroupSize(DefaultThreadGroupSizes.XY)]
 [GeneratedComputeShaderDescriptor]
 internal readonly partial struct UpdateDisplacementShader(
