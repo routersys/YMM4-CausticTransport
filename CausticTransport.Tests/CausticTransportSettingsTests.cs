@@ -174,6 +174,79 @@ public sealed class CausticTransportSettingsTests
         Assert.True(CausticTransportSettings.SplatTileSize > CausticTransportSettings.SplatGroupSize);
     }
 
+    [Fact]
+    public void TheSplatTileCoversTheGroupWithinItsMargin()
+    {
+        Assert.InRange(CausticTransportSettings.SplatTileMargin, 1, CausticTransportSettings.SplatTileSize - CausticTransportSettings.SplatGroupSize - 1);
+    }
+
+    [Theory]
+    [InlineData(128, 72, 1)]
+    [InlineData(192, 108, 2)]
+    [InlineData(256, 144, 2)]
+    [InlineData(64, 64, 1)]
+    [InlineData(48, 32, 0)]
+    [InlineData(16, 16, 0)]
+    public void TheCoarseSolveStartsAtTheFinestLevelThatFitsItsSharedMemory(int gridWidth, int gridHeight, int expected)
+    {
+        Assert.Equal(expected, CausticTransportSettings.GetCoarseSolveLevel(gridWidth, gridHeight));
+    }
+
+    [Theory]
+    [MemberData(nameof(Qualities))]
+    public void TheCoarseSolveOfEverySupportedFrameFitsItsSharedMemory(CausticTransportQuality quality)
+    {
+        var resolution = CausticTransportSettings.GetQuality(quality).GridResolution;
+
+        foreach (var (width, height) in new[] { (8192, 8192), (8192, 1), (1, 8192), (1920, 1080), (1080, 1920), (4096, 16), (16, 4096), (17, 17), (1, 1) })
+        {
+            var (gridWidth, gridHeight) = CausticTransportSettings.GetGridSize(width, height, resolution);
+            var levelCount = CausticTransportSettings.GetLevelCount(gridWidth, gridHeight);
+            var level = CausticTransportSettings.GetCoarseSolveLevel(gridWidth, gridHeight);
+            var (levelWidth, levelHeight) = CausticTransportSettings.GetLevelSize(gridWidth, gridHeight, level);
+            var required = 2 * levelWidth * levelHeight;
+            for (var coarser = level; coarser < levelCount; coarser++)
+            {
+                var (coarserWidth, coarserHeight) = CausticTransportSettings.GetLevelSize(gridWidth, gridHeight, coarser);
+                required += coarserWidth * coarserHeight;
+            }
+
+            Assert.InRange(level, 0, levelCount - 1);
+            Assert.True(required <= CausticTransportSettings.CoarseSolveCapacity, $"{width}x{height} {quality}");
+        }
+    }
+
+    [Theory]
+    [InlineData(12, 3)]
+    [InlineData(16, 4)]
+    [InlineData(20, 5)]
+    [InlineData(4, 1)]
+    [InlineData(0, 0)]
+    [InlineData(-4, 0)]
+    [InlineData(18, 0)]
+    [InlineData(24, 0)]
+    public void TheJacobiStepsSplitIntoBlocksOnlyWhenTheyDivideEvenlyWithinTheHalo(int iterations, int expected)
+    {
+        Assert.Equal(expected, CausticTransportSettings.GetJacobiBlockSteps(iterations));
+    }
+
+    [Theory]
+    [MemberData(nameof(Qualities))]
+    public void EveryQualityRelaxesItsFineLevelsInBlocks(CausticTransportQuality quality)
+    {
+        var iterations = CausticTransportSettings.GetQuality(quality).JacobiIterations;
+
+        Assert.Equal(iterations, CausticTransportSettings.GetJacobiBlockSteps(iterations) * CausticTransportSettings.JacobiBlockCount);
+    }
+
+    [Fact]
+    public void TheJacobiBlocksEndOnTheBufferTheNextStageReads()
+    {
+        Assert.Equal(0, CausticTransportSettings.JacobiBlockCount % 2);
+        Assert.Equal(CausticTransportSettings.JacobiTileSize + 2 * CausticTransportSettings.JacobiBlockMaximumSteps, CausticTransportSettings.JacobiBlockSpan);
+        Assert.Equal(CausticTransportSettings.JacobiBlockSpan * CausticTransportSettings.JacobiBlockSpan, CausticTransportSettings.JacobiBlockLength);
+    }
+
     [Theory]
     [InlineData(1, 65536)]
     [InlineData(64, 65536)]
