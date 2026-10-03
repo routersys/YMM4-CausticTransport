@@ -299,6 +299,34 @@ public sealed class CausticTransportInteropTests
         AssertShows(output, expected, 48, 32, tolerance: 0);
     }
 
+    [Fact(Timeout = 60000)]
+    public async Task AReclaimedGridIsTransportedAgain()
+    {
+        await Task.Run(() =>
+        {
+            using var devices = new GraphicsDevices();
+            using var context = devices.CreateContext();
+            using var interop = Interop.Create(context);
+            using var source = new SourceImage(context, 48, 32, Gradient);
+            var parameters = Parameters(focus: 0.3f);
+            Assert.True(interop.Resources.TryEnsureSource(48, 32, out _));
+            bool Simulate()
+            {
+                interop.Draw(source.Bitmap);
+                return interop.Pipeline.Simulate(interop.Resources.GetSourceComputeBinding(), 48, 32, in parameters);
+            }
+
+            var first = Simulate();
+            var repeated = Simulate();
+            interop.Device.TrimMemory();
+            var reclaimed = Simulate();
+
+            Assert.True(first);
+            Assert.False(repeated);
+            Assert.True(reclaimed);
+        }, TestContext.Current.CancellationToken);
+    }
+
     [Fact]
     public void ASharedPipelineWhoseGridWasReclaimedDrawsLikeAnotherPipeline()
     {
