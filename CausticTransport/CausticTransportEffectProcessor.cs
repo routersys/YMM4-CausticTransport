@@ -28,9 +28,11 @@ internal sealed class CausticTransportEffectProcessor : VideoEffectProcessorBase
     private bool _hasOutput;
     private bool _hasOutputOffset;
     private bool _hasCropRect;
+    private bool _hasRenderState;
     private Vector2 _outputOffset;
     private Vector4 _cropRect;
     private Parameters _parameters;
+    private RenderState _renderState;
 
     public CausticTransportEffectProcessor(IGraphicsDevicesAndContext devices, CausticTransportEffect item)
         : base(devices)
@@ -119,6 +121,12 @@ internal sealed class CausticTransportEffectProcessor : VideoEffectProcessorBase
             Math.Clamp(parameters.Roughness, 0f, 1f),
             Math.Max(parameters.Seed, 0));
 
+        var transportChanged = _pipeline.Simulate(
+            _resourceSet.GetSourceComputeBinding(),
+            width,
+            height,
+            in pipelineParameters);
+
         if (!OutputCovers(width, height))
             _outputCrop.SetInput(0, null, true);
         if (!EnsureOutput(width, height, out var outputChanged))
@@ -126,15 +134,29 @@ internal sealed class CausticTransportEffectProcessor : VideoEffectProcessorBase
             _effect.Amount = 0f;
             _isFirst = true;
             _hasOutput = false;
+            _hasRenderState = false;
             return effectDescription.DrawDescription;
         }
 
-        _pipeline.Process(
-            _resourceSet.GetSourceComputeBinding(),
-            _resourceSet.GetOutputComputeBinding(),
+        var renderState = new RenderState(
+            new RenderSettings(
+                pipelineParameters.Focus,
+                pipelineParameters.Dispersion,
+                pipelineParameters.Roughness,
+                pipelineParameters.Roughness > 0f ? pipelineParameters.Seed : 0),
             width,
-            height,
-            in pipelineParameters);
+            height);
+        if (transportChanged || outputChanged || !_hasOutput || !_hasRenderState || _renderState != renderState)
+        {
+            _pipeline.Render(
+                _resourceSet.GetSourceComputeBinding(),
+                _resourceSet.GetOutputComputeBinding(),
+                width,
+                height,
+                in pipelineParameters);
+            _renderState = renderState;
+            _hasRenderState = true;
+        }
 
         _outputLease ??= _resourceSet.AcquireOutputExternalViewLease();
 
@@ -332,6 +354,7 @@ internal sealed class CausticTransportEffectProcessor : VideoEffectProcessorBase
         _hasOutput = false;
         _hasOutputOffset = false;
         _hasCropRect = false;
+        _hasRenderState = false;
     }
 
     protected override void Dispose(bool disposing)
@@ -364,4 +387,15 @@ internal sealed class CausticTransportEffectProcessor : VideoEffectProcessorBase
         float Dispersion,
         float Roughness,
         int Seed);
+
+    private readonly record struct RenderSettings(
+        float Focus,
+        float Dispersion,
+        float Roughness,
+        int Seed);
+
+    private readonly record struct RenderState(
+        RenderSettings Settings,
+        int Width,
+        int Height);
 }
