@@ -150,7 +150,7 @@ internal sealed class CausticTransportPipeline : IDisposable
         in Parameters parameters)
     {
         var derived = Derive(width, height, in parameters);
-        _host.RecordSharedSplat(source, output, width, height, in derived, in parameters).Wait();
+        _ = _host.RecordSharedSplat(source, output, width, height, in derived, in parameters);
     }
 
     private ComputeSubmission SubmitFullPipeline(
