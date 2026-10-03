@@ -327,28 +327,31 @@ public sealed class CausticTransportInteropTests
         }, TestContext.Current.CancellationToken);
     }
 
-    [Fact]
-    public void ASharedPipelineWhoseGridWasReclaimedDrawsLikeAnotherPipeline()
+    [Fact(Timeout = 60000)]
+    public async Task ASharedPipelineWhoseGridWasReclaimedDrawsLikeAnotherPipeline()
     {
-        using var devices = new GraphicsDevices();
-        using var context = devices.CreateContext();
-        using var interop = Interop.Create(context);
-        using var reference = CausticTransportPipeline.TryCreate(interop.Device)!;
-        using var source = new SourceImage(context, 48, 32, Gradient);
-        var parameters = Parameters(focus: 0.3f);
-        var expected = new int[48 * 32];
-        reference.Process(Pixels(source), expected, 48, 32, in parameters);
-        Assert.True(interop.Resources.TryEnsureSource(48, 32, out _));
-        Assert.True(interop.Resources.TryEnsureOutput(48, 32, out _));
-        interop.Draw(source.Bitmap);
-        interop.Process(48, 32, parameters);
-        interop.Device.TrimMemory();
+        await Task.Run(() =>
+        {
+            using var devices = new GraphicsDevices();
+            using var context = devices.CreateContext();
+            using var interop = Interop.Create(context);
+            using var reference = CausticTransportPipeline.TryCreate(interop.Device)!;
+            using var source = new SourceImage(context, 48, 32, Gradient);
+            var parameters = Parameters(focus: 0.3f);
+            var expected = new int[48 * 32];
+            reference.Process(Pixels(source), expected, 48, 32, in parameters);
+            Assert.True(interop.Resources.TryEnsureSource(48, 32, out _));
+            Assert.True(interop.Resources.TryEnsureOutput(48, 32, out _));
+            interop.Draw(source.Bitmap);
+            interop.Process(48, 32, parameters);
+            interop.Device.TrimMemory();
 
-        interop.Draw(source.Bitmap);
-        interop.Process(48, 32, parameters);
-        var output = interop.CaptureOutput(context, out _, out _);
+            interop.Draw(source.Bitmap);
+            interop.Process(48, 32, parameters);
+            var output = interop.CaptureOutput(context, out _, out _);
 
-        AssertShows(output, expected, 48, 32, tolerance: 0);
+            AssertShows(output, expected, 48, 32, tolerance: 0);
+        }, TestContext.Current.CancellationToken);
     }
 
     static int[] Pixels(SourceImage source)
