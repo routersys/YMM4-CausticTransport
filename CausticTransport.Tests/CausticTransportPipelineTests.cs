@@ -620,6 +620,22 @@ public sealed class CausticTransportPipelineTests
     }
 
     [Fact]
+    public void APipelineWhoseGridWasReclaimedDrawsLikeAFreshOne()
+    {
+        using var pipeline = CreatePipeline();
+        using var fresh = CreatePipeline();
+        var source = Mixed(48, 32);
+        var parameters = Parameters(Circle, focus: 0.3f, dispersion: 0.5f);
+        Render(pipeline, source, 48, 32, parameters);
+        GraphicsDevice.GetDefault().TrimMemory();
+
+        var reused = Render(pipeline, source, 48, 32, parameters);
+        var expected = Render(fresh, source, 48, 32, parameters);
+
+        Assert.Equal(expected, reused);
+    }
+
+    [Fact]
     public void AWarmPipelineAllocatesNoManagedMemory()
     {
         using var pipeline = CreatePipeline();
