@@ -450,6 +450,49 @@ public sealed class CausticTransportEffectProcessorTests
     }
 
     [Fact]
+    public void EveryFrameOfAnInputChangingInPlaceIsDrawnLikeAFreshProcessor()
+    {
+        using var devices = new GraphicsDevices();
+        using var context = devices.CreateContext();
+        RequireInterop(context);
+        using var amber = new SourceImage(context, Size, Size, Scene);
+        using var azure = new SourceImage(context, Size, Size, Filled(Azure));
+        using var passThrough = new AffineTransform2D(context.DeviceContext);
+        using var image = passThrough.Output;
+        var effect = new CausticTransportEffect();
+        using var processor = effect.CreateVideoEffect(context);
+        processor.SetInput(image);
+        var frames = new (SourceImage Source, Action<CausticTransportEffect> Change)[]
+        {
+            (amber, _ => { }),
+            (amber, _ => { }),
+            (azure, _ => { }),
+            (azure, effect => effect.Focus.Values[0].Value = 30d),
+            (amber, _ => { }),
+            (amber, effect => effect.Amount.Values[0].Value = 50d),
+            (amber, effect => effect.Roughness.Values[0].Value = 0d),
+            (amber, effect => effect.Seed = 9),
+            (amber, effect => effect.Roughness.Values[0].Value = 20d),
+            (amber, effect => effect.Seed = 3),
+            (amber, effect => effect.Dispersion.Values[0].Value = 70d),
+        };
+
+        for (var index = 0; index < frames.Length; index++)
+        {
+            var (source, change) = frames[index];
+            change(effect);
+            passThrough.SetInput(0, source.Bitmap, true);
+
+            var drawn = RenderFrame(context, processor, 0);
+            using var fresh = effect.CreateVideoEffect(context);
+            fresh.SetInput(image);
+            var expected = RenderFrame(context, fresh, 0);
+
+            Assert.True(drawn.SamePixelsAs(expected), $"frame {index}");
+        }
+    }
+
+    [Fact]
     public void AProcessorWithoutAnInputHandsTheDrawDescriptionBack()
     {
         using var devices = new GraphicsDevices();
