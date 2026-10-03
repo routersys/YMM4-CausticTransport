@@ -32,10 +32,13 @@ public sealed class CausticTransportInteropTests
 
         public CausticTransportPipeline Pipeline { get; }
 
+        public GraphicsDevice Device { get; }
+
         Interop(ComputeExternalQueueScheduler scheduler, CausticTransportInteropProvider provider, GraphicsDevice device)
         {
             this.scheduler = scheduler;
             this.provider = provider;
+            Device = device;
             domain = device.RegisterExternalDomain(provider);
             Resources = CausticTransportResourceSet.Create(device, domain);
             Pipeline = CausticTransportPipeline.TryCreate(device)!;
@@ -212,6 +215,75 @@ public sealed class CausticTransportInteropTests
             Assert.Equal((size, size), (width, height));
             AssertShows(output, expected, size, size, tolerance: 0);
         }
+    }
+
+    [Fact]
+    public void EveryFrameOfASequenceMatchesWhatAnotherPipelineMakesFromThePackedPixels()
+    {
+        using var devices = new GraphicsDevices();
+        using var context = devices.CreateContext();
+        using var interop = Interop.Create(context);
+        using var reference = CausticTransportPipeline.TryCreate(interop.Device)!;
+        using var first = new SourceImage(context, 48, 32, Gradient);
+        using var second = new SourceImage(context, 48, 32, (x, y) => x < 20 && y >= 8 ? Gray : Bgra.Transparent);
+        var circle = Parameters(focus: 0.3f);
+        var plane = circle with { Shape = (int)CausticLightShape.Plane, Aperture = 0.8f };
+        var frames = new (SourceImage Source, CausticTransportPipeline.Parameters Parameters)[]
+        {
+            (first, circle),
+            (first, circle),
+            (first, circle with { Focus = 0.6f }),
+            (first, circle with { Dispersion = 0f }),
+            (first, circle with { Roughness = 0f }),
+            (first, circle with { Roughness = 0f, Seed = 9 }),
+            (first, circle with { Aperture = 0.8f }),
+            (second, circle with { Aperture = 0.8f }),
+            (second, circle with { Shape = (int)CausticLightShape.HorizontalSlit, Aperture = 0.8f }),
+            (second, plane),
+            (second, plane with { Aperture = 0.3f }),
+            (second, plane with { Quality = CausticTransportQuality.High }),
+            (first, plane with { Quality = CausticTransportQuality.High }),
+            (first, circle),
+        };
+        Assert.True(interop.Resources.TryEnsureSource(48, 32, out _));
+        Assert.True(interop.Resources.TryEnsureOutput(48, 32, out _));
+
+        for (var index = 0; index < frames.Length; index++)
+        {
+            var (source, parameters) = frames[index];
+            var expected = new int[48 * 32];
+            reference.Process(Pixels(source), expected, 48, 32, in parameters);
+
+            interop.Draw(source.Bitmap);
+            interop.Process(48, 32, parameters);
+            var output = interop.CaptureOutput(context, out _, out _);
+
+            AssertShows(output, expected, 48, 32, tolerance: 0);
+        }
+    }
+
+    [Fact]
+    public void ASharedPipelineWhoseGridWasReclaimedDrawsLikeAnotherPipeline()
+    {
+        using var devices = new GraphicsDevices();
+        using var context = devices.CreateContext();
+        using var interop = Interop.Create(context);
+        using var reference = CausticTransportPipeline.TryCreate(interop.Device)!;
+        using var source = new SourceImage(context, 48, 32, Gradient);
+        var parameters = Parameters(focus: 0.3f);
+        var expected = new int[48 * 32];
+        reference.Process(Pixels(source), expected, 48, 32, in parameters);
+        Assert.True(interop.Resources.TryEnsureSource(48, 32, out _));
+        Assert.True(interop.Resources.TryEnsureOutput(48, 32, out _));
+        interop.Draw(source.Bitmap);
+        interop.Process(48, 32, parameters);
+        interop.Device.TrimMemory();
+
+        interop.Draw(source.Bitmap);
+        interop.Process(48, 32, parameters);
+        var output = interop.CaptureOutput(context, out _, out _);
+
+        AssertShows(output, expected, 48, 32, tolerance: 0);
     }
 
     static int[] Pixels(SourceImage source)
