@@ -139,9 +139,6 @@ internal sealed class CausticTransportPipeline : IDisposable
         var settings = CausticTransportSettings.GetQuality(quality);
         var (gridWidth, gridHeight) = CausticTransportSettings.GetGridSize(width, height, settings.GridResolution);
         var pixelCount = checked(width * height);
-        if (_gridWidth == gridWidth && _gridHeight == gridHeight && _accumulatorCapacity >= pixelCount)
-            return;
-
         var accumulatorCapacity = Math.Max(_accumulatorCapacity, pixelCount);
         var gridLength = gridWidth * gridHeight;
         var levelCount = CausticTransportSettings.GetLevelCount(gridWidth, gridHeight);
