@@ -71,6 +71,7 @@ internal readonly partial struct InitializeDisplacementShader(
 internal readonly partial struct GridDepositShader(
     ReadWriteTexture2D<Bgra32, Float4> source,
     ReadWriteBuffer<float> density,
+    ReadWriteBuffer<int> sourceHash,
     int width,
     int height,
     int gridWidth,
@@ -78,33 +79,57 @@ internal readonly partial struct GridDepositShader(
 {
     private readonly ReadWriteTexture2D<Bgra32, Float4> source = source;
     private readonly ReadWriteBuffer<float> density = density;
+    private readonly ReadWriteBuffer<int> sourceHash = sourceHash;
     private readonly int width = width;
     private readonly int height = height;
     private readonly int gridWidth = gridWidth;
     private readonly int gridHeight = gridHeight;
 
+    [GroupShared(2)]
+    private static readonly int[] groupHash = null!;
+
     public void Execute()
     {
+        if (GroupIds.Index == 0)
+        {
+            groupHash[0] = 0;
+            groupHash[1] = 0;
+        }
+        Hlsl.GroupMemoryBarrierWithGroupSync();
+
         var gx = ThreadIds.X;
         var gy = ThreadIds.Y;
-        if (gx >= gridWidth || gy >= gridHeight)
-            return;
-
-        var x0 = gx * width / gridWidth;
-        var x1 = (gx + 1) * width / gridWidth;
-        var y0 = gy * height / gridHeight;
-        var y1 = (gy + 1) * height / gridHeight;
-
-        var sum = 0f;
-        for (var y = y0; y < y1; y++)
+        if (gx < gridWidth && gy < gridHeight)
         {
-            for (var x = x0; x < x1; x++)
+            var x0 = gx * width / gridWidth;
+            var x1 = (gx + 1) * width / gridWidth;
+            var y0 = gy * height / gridHeight;
+            var y1 = (gy + 1) * height / gridHeight;
+
+            var sum = 0f;
+            var hashSum = 0u;
+            var hashMix = 0u;
+            for (var y = y0; y < y1; y++)
             {
-                var pixel = source[new Int2(x, y)];
-                sum += 0.2126f * pixel.X + 0.7152f * pixel.Y + 0.0722f * pixel.Z + 0.01f * pixel.W;
+                for (var x = x0; x < x1; x++)
+                {
+                    var pixel = source[new Int2(x, y)];
+                    sum += 0.2126f * pixel.X + 0.7152f * pixel.Y + 0.0722f * pixel.Z + 0.01f * pixel.W;
+                    var mixed = CausticTransportShaderMath.MixTexel((uint)(y * width + x), pixel);
+                    hashSum += mixed;
+                    hashMix ^= mixed * 0xC2B2AE35u;
+                }
             }
+            density[gy * gridWidth + gx] = sum;
+            Hlsl.InterlockedAdd(ref groupHash[0], (int)hashSum);
+            Hlsl.InterlockedXor(ref groupHash[1], (int)hashMix);
         }
-        density[gy * gridWidth + gx] = sum;
+        Hlsl.GroupMemoryBarrierWithGroupSync();
+
+        if (GroupIds.Index != 0)
+            return;
+        Hlsl.InterlockedAdd(ref sourceHash[0], groupHash[0]);
+        Hlsl.InterlockedXor(ref sourceHash[1], groupHash[1]);
     }
 }
 
@@ -742,5 +767,23 @@ internal readonly partial struct ResolveShader(
         green = Hlsl.Min(green * scale, outAlpha);
         blue = Hlsl.Min(blue * scale, outAlpha);
         output[ThreadIds.XY] = new Float4(red, green, blue, outAlpha);
+    }
+}
+
+internal static class CausticTransportShaderMath
+{
+    public static uint MixTexel(uint index, Float4 texel)
+    {
+        var packed = (uint)(texel.X * 255f + 0.5f)
+            | ((uint)(texel.Y * 255f + 0.5f) << 8)
+            | ((uint)(texel.Z * 255f + 0.5f) << 16)
+            | ((uint)(texel.W * 255f + 0.5f) << 24);
+        var mixed = index * 0x9E3779B9u ^ packed;
+        mixed ^= mixed >> 16;
+        mixed *= 0x85EBCA6Bu;
+        mixed ^= mixed >> 13;
+        mixed *= 0xC2B2AE35u;
+        mixed ^= mixed >> 16;
+        return mixed;
     }
 }

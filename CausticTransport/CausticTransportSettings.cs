@@ -18,6 +18,9 @@ internal static class CausticTransportSettings
     public const int SplatTileLength = SplatTileSize * SplatTileSize * 4;
     public const int MaximumLevelCount = 5;
     public const int MaximumPendingSubmissions = 32;
+    public const int SourceHashLength = 2;
+    public const int SourceHashSum = 0;
+    public const int SourceHashMix = 1;
 
     public static QualitySettings GetQuality(CausticTransportQuality quality)
         => quality switch

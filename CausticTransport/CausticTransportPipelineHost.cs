@@ -116,6 +116,7 @@ internal sealed partial class CausticTransportPipelineHost
         [ComputeOwnedResource(nameof(_grid))] CausticTransportGridResources grid,
         [ComputeResource(ComputeResourceAccess.ReadWrite)] ReadWriteTexture2D<Bgra32, Float4> source,
         [ComputeResource(ComputeResourceAccess.ReadWrite)] ReadWriteTexture2D<Bgra32, Float4> output,
+        [ComputeResource(ComputeResourceAccess.ReadWrite)] ReadWriteBuffer<int> sourceHash,
         int width,
         int height,
         in CausticTransportPipeline.DerivedValues derived,
@@ -123,12 +124,42 @@ internal sealed partial class CausticTransportPipelineHost
     {
         _ = _device;
 
-        RecordStages(in context, grid, source, output, width, height, in derived, in parameters);
+        RecordDepositStage(in context, grid, source, sourceHash, width, height, in derived);
+        RecordTransportStage(in context, grid, in derived, in parameters);
+        RecordSplatStage(in context, grid, source, output, width, height, in derived, in parameters);
     }
 
     [ComputePipeline]
     [ComputeInterop]
-    private void RecordSharedPipeline(
+    private void RecordSharedDeposit(
+        in ComputeContext context,
+        [ComputeOwnedResource(nameof(_grid))] CausticTransportGridResources grid,
+        [ComputeResource(ComputeResourceAccess.ReadWrite, Sharing = ComputeResourceSharing.External)] ReadWriteTexture2D<Bgra32, Float4> source,
+        [ComputeResource(ComputeResourceAccess.ReadWrite)] ReadWriteBuffer<int> sourceHash,
+        int width,
+        int height,
+        in CausticTransportPipeline.DerivedValues derived)
+    {
+        _ = _device;
+
+        RecordDepositStage(in context, grid, source, sourceHash, width, height, in derived);
+    }
+
+    [ComputePipeline]
+    private void RecordTransport(
+        in ComputeContext context,
+        [ComputeOwnedResource(nameof(_grid))] CausticTransportGridResources grid,
+        in CausticTransportPipeline.DerivedValues derived,
+        in CausticTransportPipeline.Parameters parameters)
+    {
+        _ = _device;
+
+        RecordTransportStage(in context, grid, in derived, in parameters);
+    }
+
+    [ComputePipeline]
+    [ComputeInterop]
+    private void RecordSharedSplat(
         in ComputeContext context,
         [ComputeOwnedResource(nameof(_grid))] CausticTransportGridResources grid,
         [ComputeResource(ComputeResourceAccess.ReadWrite, Sharing = ComputeResourceSharing.External)] ReadWriteTexture2D<Bgra32, Float4> source,
@@ -140,16 +171,33 @@ internal sealed partial class CausticTransportPipelineHost
     {
         _ = _device;
 
-        RecordStages(in context, grid, source, output, width, height, in derived, in parameters);
+        RecordSplatStage(in context, grid, source, output, width, height, in derived, in parameters);
     }
 
-    private static void RecordStages(
+    private static void RecordDepositStage(
         in ComputeContext context,
         CausticTransportGridResources grid,
         ReadWriteTexture2D<Bgra32, Float4> source,
-        ReadWriteTexture2D<Bgra32, Float4> output,
+        ReadWriteBuffer<int> sourceHash,
         int width,
         int height,
+        in CausticTransportPipeline.DerivedValues derived)
+    {
+        var gridWidth = derived.GridWidth;
+        var gridHeight = derived.GridHeight;
+
+        context.Clear(sourceHash);
+        context.Barrier(sourceHash);
+        context.For(
+            ThreadGroupAlignment.AlignX<GridDepositShader>(gridWidth),
+            ThreadGroupAlignment.AlignY<GridDepositShader>(gridHeight),
+            new GridDepositShader(source, grid.Density, sourceHash, width, height, gridWidth, gridHeight));
+        context.Barrier(grid.Density);
+    }
+
+    private static void RecordTransportStage(
+        in ComputeContext context,
+        CausticTransportGridResources grid,
         in CausticTransportPipeline.DerivedValues derived,
         in CausticTransportPipeline.Parameters parameters)
     {
@@ -158,9 +206,7 @@ internal sealed partial class CausticTransportPipelineHost
         var gridLength = gridWidth * gridHeight;
         var levelCount = derived.LevelCount;
 
-        context.For(gridWidth, gridHeight, new GridDepositShader(source, grid.Density, width, height, gridWidth, gridHeight));
         context.For(gridWidth, gridHeight, new LightShapeShader(grid.Sigma, gridWidth, gridHeight, parameters.Shape, parameters.Aperture));
-        context.Barrier(grid.Density);
         context.Barrier(grid.Sigma);
         context.For(gridHeight, new GridRowSumShader(grid.Density, grid.Sigma, grid.RowSums, gridWidth, gridHeight));
         context.Barrier(grid.RowSums);
@@ -212,7 +258,18 @@ internal sealed partial class CausticTransportPipelineHost
             context.For(gridWidth, gridHeight, new UpdateDisplacementShader(grid.PhiA0, grid.Displacement, gridWidth, gridHeight, CausticTransportSettings.DisplacementRelaxation, CausticTransportSettings.DisplacementStepLimit));
             context.Barrier(grid.Displacement);
         }
+    }
 
+    private static void RecordSplatStage(
+        in ComputeContext context,
+        CausticTransportGridResources grid,
+        ReadWriteTexture2D<Bgra32, Float4> source,
+        ReadWriteTexture2D<Bgra32, Float4> output,
+        int width,
+        int height,
+        in CausticTransportPipeline.DerivedValues derived,
+        in CausticTransportPipeline.Parameters parameters)
+    {
         context.Clear(grid.Accumulator);
         context.Barrier(grid.Accumulator);
         var movement = 1f - parameters.Focus;
@@ -226,8 +283,8 @@ internal sealed partial class CausticTransportPipelineHost
                 grid.Accumulator,
                 width,
                 height,
-                gridWidth,
-                gridHeight,
+                derived.GridWidth,
+                derived.GridHeight,
                 movement,
                 parameters.Dispersion,
                 jitterAmplitude,

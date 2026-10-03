@@ -9,6 +9,9 @@ internal sealed class CausticTransportPipeline : IDisposable
     private readonly GraphicsDevice _device;
     private readonly CausticTransportPipelineHost _host;
     private readonly ReadWriteBuffer<int> _syncBuffer;
+    private readonly ReadWriteBuffer<int> _sourceHash;
+    private readonly ReadBackBuffer<int> _sourceHashReadBack;
+    private TransportKey? _transportKey;
     private int _gridWidth;
     private int _gridHeight;
     private int _accumulatorCapacity;
@@ -22,6 +25,8 @@ internal sealed class CausticTransportPipeline : IDisposable
         _device = device;
         _host = host;
         _syncBuffer = device.AllocateReadWriteBuffer<int>(1);
+        _sourceHash = device.AllocateReadWriteBuffer<int>(CausticTransportSettings.SourceHashLength);
+        _sourceHashReadBack = device.AllocateReadBackBuffer<int>(CausticTransportSettings.SourceHashLength);
     }
 
     internal void WaitForCompletion() => SynchronizeDevice();
@@ -106,9 +111,46 @@ internal sealed class CausticTransportPipeline : IDisposable
         int height,
         in Parameters parameters)
     {
+        _ = Simulate(source, width, height, in parameters);
+        Render(source, destination, width, height, in parameters);
+    }
+
+    internal bool Simulate(
+        ComputeResourceBinding<ReadWriteTexture2D<Bgra32, Float4>> source,
+        int width,
+        int height,
+        in Parameters parameters)
+    {
         EnsureResources(width, height, parameters.Quality);
         var derived = Derive(width, height, in parameters);
-        _host.RecordSharedPipeline(source, destination, width, height, in derived, in parameters).Wait();
+        _host.RecordSharedDeposit(source, _sourceHash, width, height, in derived).Wait();
+        _sourceHashReadBack.CopyFrom(_sourceHash);
+        var hashed = _sourceHashReadBack.Span;
+        var sourceHash = new ContentHash(hashed[CausticTransportSettings.SourceHashSum], hashed[CausticTransportSettings.SourceHashMix]);
+        var key = new TransportKey(
+            sourceHash,
+            width,
+            height,
+            parameters.Quality,
+            parameters.Shape,
+            parameters.Shape == (int)CausticLightShape.Plane ? 0f : parameters.Aperture);
+        if (_transportKey == key)
+            return false;
+
+        _ = _host.RecordTransport(in derived, in parameters);
+        _transportKey = key;
+        return true;
+    }
+
+    internal void Render(
+        ComputeResourceBinding<ReadWriteTexture2D<Bgra32, Float4>> source,
+        ComputeResourceBinding<ReadWriteTexture2D<Bgra32, Float4>> output,
+        int width,
+        int height,
+        in Parameters parameters)
+    {
+        var derived = Derive(width, height, in parameters);
+        _host.RecordSharedSplat(source, output, width, height, in derived, in parameters).Wait();
     }
 
     private ComputeSubmission SubmitFullPipeline(
@@ -118,8 +160,9 @@ internal sealed class CausticTransportPipeline : IDisposable
         int height,
         in Parameters parameters)
     {
+        _transportKey = null;
         var derived = Derive(width, height, in parameters);
-        return _host.RecordFullPipeline(source, output, width, height, in derived, in parameters);
+        return _host.RecordFullPipeline(source, output, _sourceHash, width, height, in derived, in parameters);
     }
 
     private DerivedValues Derive(int width, int height, in Parameters parameters)
@@ -177,9 +220,11 @@ internal sealed class CausticTransportPipeline : IDisposable
                     scalesLength: 1,
                     sigmaLength: gridLength,
                     warpedFixedLength: gridLength),
-                out _))
+                out var changed))
             throw new InvalidOperationException();
 
+        if (changed)
+            _transportKey = null;
         _gridWidth = gridWidth;
         _gridHeight = gridHeight;
         _accumulatorCapacity = accumulatorCapacity;
@@ -202,6 +247,7 @@ internal sealed class CausticTransportPipeline : IDisposable
     {
         _host.Dispose();
         _host.WaitForDisposal();
+        _transportKey = null;
         _gridWidth = 0;
         _gridHeight = 0;
         _accumulatorCapacity = 0;
@@ -212,7 +258,19 @@ internal sealed class CausticTransportPipeline : IDisposable
         _packedWidth = 0;
         _packedHeight = 0;
         _syncBuffer.Dispose();
+        _sourceHash.Dispose();
+        _sourceHashReadBack.Dispose();
     }
+
+    internal readonly record struct ContentHash(int Sum, int Mix);
+
+    private readonly record struct TransportKey(
+        ContentHash Source,
+        int Width,
+        int Height,
+        CausticTransportQuality Quality,
+        int Shape,
+        float Aperture);
 
     internal readonly record struct DerivedValues(
         int GridWidth,
