@@ -238,6 +238,8 @@ public sealed class CausticTransportInteropTests
             (first, circle with { Roughness = 0f, Seed = 9 }),
             (first, circle with { Aperture = 0.8f }),
             (second, circle with { Aperture = 0.8f }),
+            (second, circle with { Aperture = 0.8f }),
+            (second, circle with { Aperture = 0.8f }),
             (second, circle with { Shape = (int)CausticLightShape.HorizontalSlit, Aperture = 0.8f }),
             (second, plane),
             (second, plane with { Aperture = 0.3f }),
@@ -260,6 +262,41 @@ public sealed class CausticTransportInteropTests
 
             AssertShows(output, expected, 48, 32, tolerance: 0);
         }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TheTransportIsReusedOnceTheSourceAndTheLightSettle(bool sourceChanges)
+    {
+        using var devices = new GraphicsDevices();
+        using var context = devices.CreateContext();
+        using var interop = Interop.Create(context);
+        using var reference = CausticTransportPipeline.TryCreate(interop.Device)!;
+        using var first = new SourceImage(context, 48, 32, Gradient);
+        using var second = new SourceImage(context, 48, 32, (x, y) => x < 20 && y >= 8 ? Gray : Bgra.Transparent);
+        var before = Parameters(focus: 0.3f);
+        var after = sourceChanges ? before : before with { Aperture = 0.8f };
+        var settled = sourceChanges ? second : first;
+        Assert.True(interop.Resources.TryEnsureSource(48, 32, out _));
+        Assert.True(interop.Resources.TryEnsureOutput(48, 32, out _));
+        interop.Draw(first.Bitmap);
+        interop.Process(48, 32, before);
+
+        var recomputed = new List<bool>();
+        for (var frame = 0; frame < 3; frame++)
+        {
+            interop.Draw(settled.Bitmap);
+            recomputed.Add(interop.Pipeline.Simulate(interop.Resources.GetSourceComputeBinding(), 48, 32, in after));
+            interop.Pipeline.Render(interop.Resources.GetSourceComputeBinding(), interop.Resources.GetOutputComputeBinding(), 48, 32, in after);
+        }
+        var expected = new int[48 * 32];
+        reference.Process(Pixels(settled), expected, 48, 32, in after);
+        var output = interop.CaptureOutput(context, out _, out _);
+
+        Assert.True(recomputed[0]);
+        Assert.False(recomputed[2]);
+        AssertShows(output, expected, 48, 32, tolerance: 0);
     }
 
     [Fact]
