@@ -351,6 +351,21 @@ public sealed class CausticTransportPipelineTests
     }
 
     [Fact]
+    public void LightSpreadFarBeyondItsSourceIsConservedAndStaysBalanced()
+    {
+        using var pipeline = CreatePipeline();
+        var source = Disc(96, 64, 48, 32, 16, Opaque);
+
+        var rendering = Render(pipeline, source, 96, 64, Parameters(Plane, focus: 0f));
+
+        var left = rendering.Where((_, index) => index % 96 < 48).Sum(pixel => (long)Alpha(pixel));
+        var right = rendering.Where((_, index) => index % 96 >= 48).Sum(pixel => (long)Alpha(pixel));
+        Assert.InRange(Light(rendering), Light(source) * 0.98, Light(source) * 1.02);
+        Assert.InRange(left, right * 0.98, right * 1.02);
+        Assert.True(LitPixels(rendering) > LitPixels(source) * 2);
+    }
+
+    [Fact]
     public void WithoutDispersionEveryColorTravelsTogether()
     {
         using var pipeline = CreatePipeline();
