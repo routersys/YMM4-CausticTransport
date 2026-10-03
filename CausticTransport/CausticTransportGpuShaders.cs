@@ -525,8 +525,8 @@ internal readonly partial struct SplatShader(
     [GroupShared(CausticTransportSettings.SplatTileLength)]
     private static readonly uint[] tile = null!;
 
-    [GroupShared(4)]
-    private static readonly int[] extent = null!;
+    [GroupShared(3)]
+    private static readonly int[] anchor = null!;
 
     public void Execute()
     {
@@ -537,6 +537,12 @@ internal readonly partial struct SplatShader(
         var pixel = source[new Int2(Hlsl.Min(x, width - 1), Hlsl.Min(y, height - 1))];
         var active = x < width && y < height &&
             (pixel.X > 0f || pixel.Y > 0f || pixel.Z > 0f || pixel.W > 0f);
+
+        if (threadIndex == 0)
+            anchor[2] = 0;
+        Hlsl.GroupMemoryBarrierWithGroupSync();
+        if (active)
+            Hlsl.InterlockedOr(ref anchor[2], 1);
 
         var transport = new Float2(0f, 0f);
         if (active)
@@ -580,51 +586,26 @@ internal readonly partial struct SplatShader(
 
             if (threadIndex == 0)
             {
-                extent[0] = width;
-                extent[1] = height;
-                extent[2] = -1;
-                extent[3] = -1;
+                anchor[0] = ix0 - CausticTransportSettings.SplatTileMargin;
+                anchor[1] = iy0 - CausticTransportSettings.SplatTileMargin;
             }
+            ClearTile(threadIndex, threadCount);
             Hlsl.GroupMemoryBarrierWithGroupSync();
-            if (active)
-            {
-                Hlsl.InterlockedMin(ref extent[0], ix0);
-                Hlsl.InterlockedMin(ref extent[1], iy0);
-                Hlsl.InterlockedMax(ref extent[2], ix1);
-                Hlsl.InterlockedMax(ref extent[3], iy1);
-            }
-            Hlsl.GroupMemoryBarrierWithGroupSync();
+            if (anchor[2] == 0)
+                return;
 
-            var originX = extent[0];
-            var originY = extent[1];
-            var spanX = extent[2] - originX + 1;
-            var spanY = extent[3] - originY + 1;
-            var useTile = spanX >= 1 &&
-                spanX <= CausticTransportSettings.SplatTileSize &&
-                spanY <= CausticTransportSettings.SplatTileSize;
-            if (useTile)
-                ClearTile(spanX, spanY, threadIndex, threadCount);
-            Hlsl.GroupMemoryBarrierWithGroupSync();
+            var originX = anchor[0];
+            var originY = anchor[1];
             if (active)
             {
-                if (useTile)
-                {
-                    AddTileTap(TileOffset(ix0 - originX, iy0 - originY), contribution, (1f - wx) * (1f - wy));
-                    AddTileTap(TileOffset(ix1 - originX, iy0 - originY), contribution, wx * (1f - wy));
-                    AddTileTap(TileOffset(ix0 - originX, iy1 - originY), contribution, (1f - wx) * wy);
-                    AddTileTap(TileOffset(ix1 - originX, iy1 - originY), contribution, wx * wy);
-                }
-                else
-                {
-                    AddGlobalTap((iy0 * width + ix0) * 4, contribution, (1f - wx) * (1f - wy));
-                    AddGlobalTap((iy0 * width + ix1) * 4, contribution, wx * (1f - wy));
-                    AddGlobalTap((iy1 * width + ix0) * 4, contribution, (1f - wx) * wy);
-                    AddGlobalTap((iy1 * width + ix1) * 4, contribution, wx * wy);
-                }
+                AddTap(ix0, iy0, originX, originY, contribution, (1f - wx) * (1f - wy));
+                AddTap(ix1, iy0, originX, originY, contribution, wx * (1f - wy));
+                AddTap(ix0, iy1, originX, originY, contribution, (1f - wx) * wy);
+                AddTap(ix1, iy1, originX, originY, contribution, wx * wy);
             }
             Hlsl.GroupMemoryBarrierWithGroupSync();
-            if (useTile)
-                FlushTile(originX, originY, spanX, spanY, threadIndex, threadCount);
+            FlushTile(originX, originY, threadIndex, threadCount);
+            Hlsl.GroupMemoryBarrierWithGroupSync();
         }
     }
 
@@ -661,33 +642,34 @@ internal readonly partial struct SplatShader(
     private int TileOffset(int tileX, int tileY)
         => (tileY * CausticTransportSettings.SplatTileSize + tileX) * 4;
 
-    private void ClearTile(int spanX, int spanY, int threadIndex, int threadCount)
+    private void ClearTile(int threadIndex, int threadCount)
     {
-        var cellCount = spanX * spanY * 4;
-        for (var index = threadIndex; index < cellCount; index += threadCount)
+        for (var index = threadIndex; index < CausticTransportSettings.SplatTileLength; index += threadCount)
+            tile[index] = 0;
+    }
+
+    private void FlushTile(int originX, int originY, int threadIndex, int threadCount)
+    {
+        for (var index = threadIndex; index < CausticTransportSettings.SplatTileLength; index += threadCount)
         {
-            var cell = index / 4;
-            var channel = index - cell * 4;
-            var tileY = cell / spanX;
-            var tileX = cell - tileY * spanX;
-            tile[TileOffset(tileX, tileY) + channel] = 0;
+            var amount = tile[index];
+            if (amount == 0)
+                continue;
+            var cell = index >> 2;
+            var tileY = cell / CausticTransportSettings.SplatTileSize;
+            var tileX = cell - tileY * CausticTransportSettings.SplatTileSize;
+            Hlsl.InterlockedAdd(ref accumulator[((originY + tileY) * width + originX + tileX) * 4 + (index & 3)], amount);
         }
     }
 
-    private void FlushTile(int originX, int originY, int spanX, int spanY, int threadIndex, int threadCount)
+    private void AddTap(int cellX, int cellY, int originX, int originY, Float4 value, float weight)
     {
-        var cellCount = spanX * spanY * 4;
-        for (var index = threadIndex; index < cellCount; index += threadCount)
-        {
-            var cell = index / 4;
-            var channel = index - cell * 4;
-            var tileY = cell / spanX;
-            var tileX = cell - tileY * spanX;
-            var amount = tile[TileOffset(tileX, tileY) + channel];
-            if (amount == 0)
-                continue;
-            Hlsl.InterlockedAdd(ref accumulator[((originY + tileY) * width + originX + tileX) * 4 + channel], amount);
-        }
+        var tileX = cellX - originX;
+        var tileY = cellY - originY;
+        if (tileX >= 0 && tileX < CausticTransportSettings.SplatTileSize && tileY >= 0 && tileY < CausticTransportSettings.SplatTileSize)
+            AddTileTap(TileOffset(tileX, tileY), value, weight);
+        else
+            AddGlobalTap((cellY * width + cellX) * 4, value, weight);
     }
 
     private void AddTileTap(int index4, Float4 value, float weight)

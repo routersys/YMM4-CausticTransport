@@ -14,7 +14,8 @@ internal static class CausticTransportSettings
     public const int MaximumCanvasSize = 8192;
     public const int MaximumPixelCount = (int)(uint.MaxValue / (ColorFixedScaleMargin * MinimumColorFixedScale));
     public const int SplatGroupSize = 8;
-    public const int SplatTileSize = 10;
+    public const int SplatTileSize = 12;
+    public const int SplatTileMargin = 2;
     public const int SplatTileLength = SplatTileSize * SplatTileSize * 4;
     public const int MaximumLevelCount = 5;
     public const int MaximumPendingSubmissions = 32;
