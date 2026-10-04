@@ -20,7 +20,7 @@ RoughnessDescription,,磨りガラスのように光の筋を柔らかく散ら�
 Seed,,シード,Seed,种子,種子,시드,Semilla,البذرة,Seed
 SeedDescription,,散乱の分布を決める固定値です,A fixed value that determines the scatter distribution,决定散射分布的固定值,決定散射分佈的固定值,산란 분포를 결정하는 고정값입니다,Valor fijo que determina la distribución de la dispersión,قيمة ثابتة تحدد توزيع التشتت,Nilai tetap yang menentukan distribusi hamburan
 ShapePlane,,面,Plane,平面,平面,평면,Plano,مستو,Bidang
-ShapePlaneDescription,,画面全体へ一様に広がります,Spreads uniformly across the whole frame,均匀扩散到整个画面,均勻擴散到整個畫面,화면 전체로 균일하게 퍼집니다,Se extiende uniformemente por todo el cuadro,ينتشر بانتظام عبر الإطار كله,Menyebar merata ke seluruh bingkai
+ShapePlaneDescription,,元映像の全体へ一様に広がります,Spreads uniformly across the whole source image,均匀扩散到整个原图像,均勻擴散到整個原圖像,원본 영상 전체로 균일하게 퍼집니다,Se extiende uniformemente por toda la imagen original,ينتشر بانتظام عبر الصورة الأصلية كلها,Menyebar merata ke seluruh citra sumber
 ShapeCircle,,円,Circle,圆形,圓形,원형,Círculo,دائرة,Lingkaran
 ShapeCircleDescription,,中央の円形の絞りへ集まります,Gathers into a circular aperture at the center,聚集到中央的圆形光圈,聚集到中央的圓形光圈,중앙의 원형 조리개로 모입니다,Se concentra en una apertura circular en el centro,يتجمع في فتحة دائرية في المنتصف,Berkumpul ke bukaan melingkar di tengah
 ShapeHorizontalSlit,,横スリット,Horizontal Slit,水平狭缝,水平狹縫,가로 슬릿,Rendija horizontal,شق أفقي,Celah Horizontal
